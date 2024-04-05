@@ -1,0 +1,2 @@
+DBPath: fs/store.db
+ListenAddr: ":8081"
