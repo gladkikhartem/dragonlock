@@ -1,5 +1,13 @@
-# Concurrency Database  (from Cloud Dragon)
-Set of useful high-performance APIs running on a single server intended to free up your database from locking overheads.
+# Cloud Dragon Tools
+
+As swiss-knife set of useful high-performance APIs running on a single server intended to make your distributed life easier.
+
+Now you can scale up your clusters and all concurrency complexity can be offloaded
+to a single server.
+
+Your APP can now bet stateless and all state is stored on 1 server.
+It's like PostgreSQL, but faster and crafted specifically for certain use-cases.
+
 
 
 ## Features
@@ -46,16 +54,23 @@ Current status: Not ready for production.
     * `GET /db/:acc/lock/:id` - check lock
     * `POST /db/:acc/lock/:id` - set lock
     * `DELETE /db/:acc/lock/:id` - delete lock
-* Queues API (TBD)
+:
+#### TODO LIST
+* Queues API
     * Regular and FIFO queues
-* Tasks API (TBD)
+* Tasks API 
     * Events scheduled for certain time. like Google Tasks
-* TTL Key Value
-    * For TTL caches
-* JS Scripting API (TDB)
+* Ratelimit API
+    * Global ratelimits for certain operations
+* JS Scripting API
     * Execute business logic using JS
+* WS State/Configuration management
+    * Make sure all subscribed hosts have same config
+* Service Discovery
+    * APIs compatible with Consul/etcd. Same stuff, but in single-node flavour. Who needs 3 servers anyway if 1 is working just fine for 10 years? You should be ready for outages anyway. For 99.99% cases backup will work just fine.
 * Load balancer (TDB)
     * Scalability in case you need > 50k req/second
+* Improve APIs with metrics, monitoring & admin options.
 
 
 
