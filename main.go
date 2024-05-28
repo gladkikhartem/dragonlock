@@ -11,6 +11,8 @@ import (
 	"gopkg.in/yaml.v2"
 
 	"github.com/buaazp/fasthttprouter"
+	_ "github.com/mattn/go-sqlite3"
+
 	_ "github.com/lib/pq"
 )
 
@@ -77,15 +79,27 @@ func Start() error {
 	go func() {
 		log.Print("START ", cfg.ListenAddr)
 		router := fasthttprouter.New()
+		// In memory APIs. Not persistent
+		router.GET("/fastlock/:id", FastLockHandler)
+		router.POST("/fastunlock/:id", FastUnlockHandler)
+
+		// Persistent APIs
 		router.GET("/db/:acc/sequence/:id", GetSequenceHandler)
 		router.POST("/db/:acc/sequence/:id", NextSequenceHandler)
 		router.DELETE("/db/:acc/sequence/:id", DeleteSequenceHandler)
+
 		router.GET("/db/:acc/counter/:id", GetCounterHandler)
 		router.POST("/db/:acc/counter/:id", AddCounterHandler)
 		router.DELETE("/db/:acc/counter/:id", DeleteCounterHandler)
+
 		router.GET("/db/:acc/kv/:id", GetKVHandler)
 		router.POST("/db/:acc/kv/:id", SetKVHandler)
 		router.DELETE("/db/:acc/kv/:id", DeleteKVHandler)
+
+		router.GET("/db/:acc/lock/:id", GetLockHandler)
+		router.POST("/db/:acc/lock/:id", SetLockHandler)
+		router.DELETE("/db/:acc/lock/:id", DeleteLockHandler)
+
 		err := fasthttp.ListenAndServe(cfg.ListenAddr, router.Handler)
 		if err != nil {
 			panic(err)

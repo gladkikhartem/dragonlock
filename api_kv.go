@@ -25,17 +25,21 @@ func SetKVHandler(ctx *fasthttp.RequestCtx) {
 		ctx.Error(err.Error(), 400)
 		return
 	}
-	cid := compID(SequentialIDPrefix, acc, id)
+	cid := compID(KVPrefix, acc, id)
 	args := ctx.Request.URI().QueryArgs()
+
+	oldVer := 0
 	version := args.Peek("ver")
-	if len(version) > 12 || len(version) == 0 {
-		ctx.Error("version is not in range 0~6", 400)
-		return
-	}
-	oldVer, err := strconv.Atoi(string(version))
-	if err != nil {
-		ctx.Error("failed to parse duration "+err.Error(), 400)
-		return
+	if len(version) != 0 {
+		if len(version) > 6 {
+			ctx.Error("version is not in range 0~6", 400)
+			return
+		}
+		oldVer, err = strconv.Atoi(string(version))
+		if err != nil {
+			ctx.Error("failed to parse duration "+err.Error(), 400)
+			return
+		}
 	}
 
 	var kv KV
@@ -60,7 +64,7 @@ func SetKVHandler(ctx *fasthttp.RequestCtx) {
 		if err != nil {
 			return err
 		}
-		if kv.Version != int64(oldVer) {
+		if oldVer != 0 && kv.Version != int64(oldVer) {
 			return ErrConflict
 		}
 		kv.Data = ctx.PostBody()
@@ -86,7 +90,7 @@ func GetKVHandler(ctx *fasthttp.RequestCtx) {
 		ctx.Error(err.Error(), 400)
 		return
 	}
-	cid := compID(SequentialIDPrefix, acc, id)
+	cid := compID(KVPrefix, acc, id)
 	d, closer, err := store.db.Get(cid)
 	if err != nil {
 		if err == pebble.ErrNotFound {
@@ -124,7 +128,7 @@ func DeleteKVHandler(ctx *fasthttp.RequestCtx) {
 		ctx.Error("failed to parse duration "+err.Error(), 400)
 		return
 	}
-	cid := compID(SequentialIDPrefix, acc, id)
+	cid := compID(KVPrefix, acc, id)
 
 	var kv KV
 	err = store.Update(cid, func() error {
