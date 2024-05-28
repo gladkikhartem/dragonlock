@@ -80,8 +80,8 @@ func Start() error {
 		log.Print("START ", cfg.ListenAddr)
 		router := fasthttprouter.New()
 		// In memory APIs. Not persistent
-		router.GET("/fastlock/:id", FastLockHandler)
-		router.POST("/fastunlock/:id", FastUnlockHandler)
+		router.POST("/db/:acc/flock/:id", FastLockHandler)
+		router.DELETE("/db/:acc/flock/:id", FastUnlockHandler)
 
 		// Persistent APIs
 		router.GET("/db/:acc/sequence/:id", GetSequenceHandler)
@@ -99,6 +99,10 @@ func Start() error {
 		router.GET("/db/:acc/lock/:id", GetLockHandler)
 		router.POST("/db/:acc/lock/:id", SetLockHandler)
 		router.DELETE("/db/:acc/lock/:id", DeleteLockHandler)
+
+		router.NotFound = func(ctx *fasthttp.RequestCtx) {
+			ctx.SetStatusCode(404)
+		}
 
 		err := fasthttp.ListenAndServe(cfg.ListenAddr, router.Handler)
 		if err != nil {

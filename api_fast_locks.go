@@ -11,7 +11,6 @@ import (
 )
 
 var fmu = newFastLockMutex()
-var rnd = rand.New(rand.NewSource(time.Now().Unix()))
 
 func FastLockHandler(ctx *fasthttp.RequestCtx) {
 	acc, id, err := getAccID(ctx)
@@ -141,6 +140,7 @@ func (km *fastLockMutex) UnlockTimeout(key string, ch chan bool) chan bool {
 
 func (km *fastLockMutex) Lock(key string, ch chan bool, wait int) (int64, bool) {
 	start := time.Now().Unix()
+	var rnd = rand.New(rand.NewSource(time.Now().Unix()))
 	handle := rnd.Int63()
 	km.l.Lock()
 	defer km.l.Unlock()

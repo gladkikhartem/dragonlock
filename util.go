@@ -63,15 +63,6 @@ func compID(prefix int, acc, id string) []byte {
 	return b
 }
 
-// // TableID|Account|0|ID|0|ID
-// func comp2ID(id1, id2 []byte) []byte {
-// 	b := make([]byte, 0, len(id1)+len(id2)+1)
-// 	b = append(b, id1...)
-// 	b = append(b, 0)
-// 	b = append(b, id2...)
-// 	return b
-// }
-
 func getAccID(ctx *fasthttp.RequestCtx) (string, string, error) {
 	acc := ctx.UserValue("acc").(string)
 	if len(acc) > 255 || len(acc) == 0 {

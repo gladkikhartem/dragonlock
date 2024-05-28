@@ -1,52 +1,121 @@
 package main
 
 import (
-	"context"
-	"os"
-	"os/signal"
+	"fmt"
+	"math/rand"
+	"sync"
+	"sync/atomic"
 	"testing"
+	"time"
 
-	"github.com/buaazp/fasthttprouter"
-	"github.com/cockroachdb/pebble"
 	"github.com/valyala/fasthttp"
 )
 
-func TestMain(m *testing.M) {
-	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt)
-	defer cancel()
+func BenchmarkSequence1000Clients1Key(b *testing.B) {
+	var wg sync.WaitGroup
+	counterURI := fasthttp.AcquireURI()
+	counterURI.Parse(nil, []byte("http://localhost:8081/db/123/sequence/1"))
 
-	os.RemoveAll("test.db")
-	opts := &pebble.Options{}
-	db, err := pebble.Open("test.db", opts)
+	c := fasthttp.Client{}
+	c.MaxConnsPerHost = 10000
+	rreq := fasthttp.AcquireRequest()
+	rreesp := fasthttp.AcquireResponse()
+	rreq.SetURI(counterURI)
+	rreq.Header.SetMethod("DELETE")
+	err := c.Do(rreq, rreesp)
 	if err != nil {
 		panic(err)
 	}
 
-	store = NewStore(db)
+	counter := int64(0)
 
-	go func() {
-		router := fasthttprouter.New()
-		router.GET("/db/:acc/sequence/:id", GetSequenceHandler)
-		router.POST("/db/:acc/sequence/:id", NextSequenceHandler)
-		router.DELETE("/db/:acc/sequence/:id", DeleteSequenceHandler)
-		router.GET("/db/:acc/counter/:id", GetCounterHandler)
-		router.POST("/db/:acc/counter/:id", AddCounterHandler)
-		router.DELETE("/db/:acc/counter/:id", DeleteCounterHandler)
-		router.GET("/db/:acc/kv/:id", GetKVHandler)
-		router.POST("/db/:acc/kv/:id", SetKVHandler)
-		router.DELETE("/db/:acc/kv/:id", DeleteKVHandler)
-		err := fasthttp.ListenAndServe(":33123", router.Handler)
-		if err != nil {
-			panic(err)
-		}
-	}()
+	for i := 0; i < 1000; i++ {
+		wg.Add(1)
+		go func(i int) {
+			defer wg.Done()
+			for {
+				if atomic.AddInt64(&counter, 1) > int64(b.N) {
+					return
+				}
+				req := fasthttp.AcquireRequest()
+				req.Header.SetMethod("POST")
+				req.SetURI(counterURI)
+				resp := fasthttp.AcquireResponse()
+				err := c.Do(req, resp)
+				if err != nil {
+					panic(err)
+				}
+				if resp.StatusCode() != 200 {
+					panic(resp.StatusCode())
+				}
+				fasthttp.ReleaseRequest(req)
+				fasthttp.ReleaseResponse(resp)
+			}
+		}(i)
+	}
+	wg.Wait()
 
-	go func() {
-		err = store.FlushLoop(ctx)
-		if err != nil {
-			panic(err)
-		}
-	}()
+	rreq.Header.SetMethod("GET")
+	err = c.Do(rreq, rreesp)
+	if err != nil {
+		panic(err)
+	}
+	if string(rreesp.Body()) != fmt.Sprint(b.N) {
+		panic("COUNTER MISMATCH " + string(rreesp.Body()) + " " + fmt.Sprint(b.N))
+	}
 
-	os.Exit(m.Run())
+	fasthttp.ReleaseURI(counterURI)
+}
+
+func BenchmarkFastLocks1000Clients1000RandomKeys(b *testing.B) {
+	c := fasthttp.Client{}
+	c.MaxConnsPerHost = 10000
+	var wg sync.WaitGroup
+
+	counter := int64(0)
+
+	for i := 0; i < 1000; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for {
+				if atomic.AddInt64(&counter, 1) > int64(b.N) {
+					return
+				}
+				rnd := rand.New(rand.NewSource(time.Now().UnixNano()))
+				id := rnd.Intn(1000)
+				lockURI := fasthttp.AcquireURI()
+				lockURI.Parse(nil, []byte(fmt.Sprintf("http://localhost:8081/db/123/flock/%d?dur=10&wait=10", id)))
+				unlockURI := fasthttp.AcquireURI()
+				unlockURI.Parse(nil, []byte(fmt.Sprintf("http://localhost:8081/db/123/flock/%d", id)))
+
+				req := fasthttp.AcquireRequest()
+				req.Header.SetMethod("POST")
+				resp := fasthttp.AcquireResponse()
+
+				req.SetURI(lockURI)
+				err := c.Do(req, resp)
+				if err != nil {
+					panic(err)
+				}
+				if resp.StatusCode() != 200 {
+					panic(string(resp.Body()))
+				}
+				req.SetURI(unlockURI)
+				req.Header.SetMethod("DELETE")
+				err = c.Do(req, resp)
+				if err != nil {
+					panic(err)
+				}
+				if resp.StatusCode() != 200 {
+					panic(string(resp.Body()))
+				}
+				fasthttp.ReleaseRequest(req)
+				fasthttp.ReleaseResponse(resp)
+				fasthttp.ReleaseURI(lockURI)
+				fasthttp.ReleaseURI(unlockURI)
+			}
+		}()
+	}
+	wg.Wait()
 }
