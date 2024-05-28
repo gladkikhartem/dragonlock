@@ -1,14 +1,17 @@
 # Cloud Dragon Tools
 Set of useful high-performance APIs running on a single server.
 
-### Features
-    * Can run on cheap $5 VPS and pump put 100k req/second.
-    * Strongly consistent operations persisted to disk.
-    * Automatic backups to S3 (not implemeneted yet)
-    * Small codebase written in pure Go - easy to adjust for your needs
+## Features
+
+* Can run on cheap $5 VPS and pump put 100k req/second.
+* Strongly consistent operations persisted to disk.
+* Automatic backups to S3 (not implemeneted yet)
+* Small codebase written in pure Go - easy to adjust for your needs
 
 Current status: Not ready for production. Untested & barely benchmarked.
 
+
+## API List
 
 * Sequence API
     * Allows to generate monotonically increasing numbers
