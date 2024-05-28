@@ -1,6 +1,8 @@
 # Cloud Dragon Tools
 Set of useful high-performance APIs running on a single server.
 
+Current status: Not ready for production. Untested & barely benchmarked.
+
 
 * Sequence API
     * Allows to generate monotonically increasing numbers
