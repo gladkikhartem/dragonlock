@@ -5,6 +5,10 @@ import (
 	"log"
 	"os"
 	"os/signal"
+	"runtime/pprof"
+
+	"net/http"
+	_ "net/http/pprof"
 
 	"github.com/cockroachdb/pebble"
 	"github.com/valyala/fasthttp"
@@ -24,7 +28,27 @@ type Config struct {
 }
 
 func main() {
-	err := Start()
+	f, err := os.Create("prof.txt")
+	if err != nil {
+		log.Fatal(err)
+	}
+	err = pprof.StartCPUProfile(f)
+	if err != nil {
+		panic(err)
+	}
+	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt)
+	defer cancel()
+
+	defer func() {
+		pprof.StopCPUProfile()
+		log.Print("STPO")
+		os.Exit(1)
+	}()
+
+	go func() {
+		http.ListenAndServe(":8082", nil)
+	}()
+	err = Start(ctx)
 	if err != nil {
 		panic(err)
 	}
@@ -32,10 +56,7 @@ func main() {
 
 var store *Store
 
-func Start() error {
-	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt)
-	defer cancel()
-
+func Start(ctx context.Context) error {
 	cfgFilename := os.Getenv("CFG_FILE")
 	if cfgFilename == "" {
 		cfgFilename = "config.yml"
@@ -104,7 +125,12 @@ func Start() error {
 			ctx.SetStatusCode(404)
 		}
 
-		err := fasthttp.ListenAndServe(cfg.ListenAddr, router.Handler)
+		s := fasthttp.Server{
+			Handler:       router.Handler,
+			Concurrency:   100000,
+			MaxConnsPerIP: 1000000,
+		}
+		err := s.ListenAndServe(cfg.ListenAddr)
 		if err != nil {
 			panic(err)
 		}

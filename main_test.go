@@ -83,7 +83,7 @@ func BenchmarkFastLocks1000Clients1000RandomKeys(b *testing.B) {
 					return
 				}
 				rnd := rand.New(rand.NewSource(time.Now().UnixNano()))
-				id := rnd.Intn(1000)
+				id := rnd.Intn(100)
 				lockURI := fasthttp.AcquireURI()
 				lockURI.Parse(nil, []byte(fmt.Sprintf("http://localhost:8081/db/123/flock/%d?dur=10&wait=10", id)))
 				unlockURI := fasthttp.AcquireURI()

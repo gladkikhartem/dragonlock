@@ -30,7 +30,7 @@ import (
 
 type Store struct {
 	db      *pebble.DB
-	kmu     kmutex
+	kmu     []*kmutex
 	mu      sync.Mutex
 	done    chan struct{}
 	count   int  // number of requests processed from last WAL write
@@ -39,11 +39,15 @@ type Store struct {
 }
 
 func NewStore(db *pebble.DB) *Store {
-	return &Store{
+
+	s := &Store{
 		db:   db,
-		kmu:  *newLocker(),
 		done: make(chan struct{}),
 	}
+	for i := 0; i < 100; i++ {
+		s.kmu = append(s.kmu, newLocker())
+	}
+	return s
 }
 
 func (p *Store) Flush() int {
@@ -102,8 +106,8 @@ func (p *Store) singletonUpdate(key []byte, f UpdateFunc) error {
 	h := fnv.New64a()
 	h.Write(key)
 	kid := h.Sum64()
-	p.kmu.Lock(kid)
-	defer p.kmu.Unlock(kid)
+	p.kmu[kid%100].Lock(kid)
+	defer p.kmu[kid%100].Unlock(kid)
 
 	return f()
 }

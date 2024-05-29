@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"hash/fnv"
 	"math/rand"
 	"strconv"
 	"sync"
@@ -10,7 +11,20 @@ import (
 	"github.com/valyala/fasthttp"
 )
 
-var fmu = newFastLockMutex()
+var fmu = []*fastLockMutex{}
+
+func init() {
+	for i := 0; i < 100; i++ {
+		fmu = append(fmu, newFastLockMutex())
+	}
+}
+
+func GetLock(id string) *fastLockMutex {
+	h := fnv.New64a()
+	h.Write([]byte(id))
+	kid := h.Sum64()
+	return fmu[kid%100]
+}
 
 func FastLockHandler(ctx *fasthttp.RequestCtx) {
 	acc, id, err := getAccID(ctx)
@@ -41,7 +55,7 @@ func FastLockHandler(ctx *fasthttp.RequestCtx) {
 
 	cid := acc + string([]byte{0}) + id
 	ch := make(chan bool)
-	handle, ok := fmu.Lock(cid, ch, wait)
+	handle, ok := GetLock(cid).Lock(cid, ch, wait)
 	if !ok {
 		ctx.Error("lock timed out", 400)
 		return
@@ -51,7 +65,7 @@ func FastLockHandler(ctx *fasthttp.RequestCtx) {
 		t := time.NewTimer(time.Second * time.Duration(dur))
 		select {
 		case <-t.C:
-			fmu.UnlockTimeout(cid, ch) // try unlock by timeout
+			GetLock(cid).UnlockTimeout(cid, ch) // try unlock by timeout
 		case <-ch:
 			t.Stop() // all is good
 		}
@@ -74,7 +88,7 @@ func FastUnlockHandler(ctx *fasthttp.RequestCtx) {
 		}
 	}
 	cid := acc + string([]byte{0}) + id
-	ch := fmu.Unlock(cid, handle)
+	ch := GetLock(cid).Unlock(cid, handle)
 	if ch != nil {
 		close(ch)
 	}
