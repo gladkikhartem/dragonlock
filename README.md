@@ -1,4 +1,4 @@
-# ![cd](cd.png) Cloud Dragon Tools
+# ![cd](cd.png) Cloud Dragon Tools  (WIP)
 
 A swiss-knife set of useful high-performance APIs running on a single server intended to make your distributed life easier.
 
@@ -21,6 +21,10 @@ A swiss-knife set of useful high-performance APIs running on a single server int
     * This is similar API to Mutex, but persisted on disk and it's non-blocking. You can call this api from bash scripts to protect against concurrent runs (`curl -f -X POST "{url}/db/1/lock/1?id=123&dur=30"`)
 :
 #### TODO LIST
+* Docker
+* Idempotency
+* Tests & Benchmarks
+* Admin page & Auth mechanisms
 * Queues API
     * Regular and FIFO queues
 * Tasks API 
