@@ -4,7 +4,7 @@ A swiss-knife set of useful high-performance APIs running on a single server int
 
 
 ## Features
-* 5 separate APIs that can deliver 50k-100k req/second on $5 VPS.
+* 5 separate APIs that can deliver 20k req/second on $4 VPS.
 * Strongly consistent writes & frequent backups to S3.
 * Small & simple codebase 
 
@@ -27,8 +27,10 @@ A swiss-knife set of useful high-performance APIs running on a single server int
 * Admin page & Auth mechanisms
 * Queues API
     * Regular and FIFO queues
+* Cron API
+    * Run HTTP tasks on schedule with cron
 * Tasks API 
-    * Events scheduled for certain time. like Google Tasks
+    * HTTP Events scheduled for certain time. like Google Tasks
 * Ratelimit API
     * Global ratelimits for certain operations
 * JS Scripting API

@@ -1,2 +1,2 @@
-DBPath: fs/store.db
+DBPath: bench.db
 ListenAddr: ":8081"
