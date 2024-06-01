@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"math/rand"
 	"os"
 	"os/signal"
 	"sync"
@@ -29,6 +30,13 @@ type Config struct {
 }
 
 func main() {
+	if len(os.Args) > 1 {
+		log.Print("Running BenchmarkSequence1000Clients1Key")
+		start := time.Now()
+		BenchmarkSequence1000Clients1000Keys()
+		log.Print("1m requests took sec: ", time.Since(start).Seconds())
+		return
+	}
 	// f, err := os.Create("prof.txt")
 	// if err != nil {
 	// 	log.Fatal(err)
@@ -57,21 +65,27 @@ func main() {
 
 var store *Store
 
+var addr = ":32" + fmt.Sprint(time.Now().UnixNano()%1000)
+
 func Start(ctx context.Context) error {
 	cfgFilename := os.Getenv("CFG_FILE")
-	if cfgFilename == "" {
-		cfgFilename = "config.yml"
-	}
-	yd, err := os.ReadFile(cfgFilename)
-	if err != nil {
-		return err
-	}
 	var cfg Config
-	err = yaml.Unmarshal(yd, &cfg)
-	if err != nil {
-		return err
+	if cfgFilename == "" {
+		cfg.DBPath = "ben.db"
+		cfg.ListenAddr = addr
+	} else {
+		cfgFilename = "config.yml"
+		yd, err := os.ReadFile(cfgFilename)
+		if err != nil {
+			return err
+		}
+		err = yaml.Unmarshal(yd, &cfg)
+		if err != nil {
+			return err
+		}
 	}
-
+	cfg.DBPath = fmt.Sprint(time.Now().UnixNano()%1000000) + ".db"
+	defer os.RemoveAll(fmt.Sprint(time.Now().UnixNano()%1000000) + ".db")
 	opts := &pebble.Options{}
 	opts.Levels = []pebble.LevelOptions{
 		{
@@ -127,9 +141,15 @@ func Start(ctx context.Context) error {
 		}
 
 		s := fasthttp.Server{
-			Handler:       router.Handler,
-			Concurrency:   100000,
-			MaxConnsPerIP: 100000,
+			Handler:                       router.Handler,
+			Concurrency:                   100000,
+			MaxConnsPerIP:                 100000,
+			ReadBufferSize:                10000,
+			WriteBufferSize:               10000,
+			DisableHeaderNamesNormalizing: true,
+			NoDefaultContentType:          true,
+			NoDefaultDate:                 true,
+			NoDefaultServerHeader:         true,
 		}
 		err := s.ListenAndServe(cfg.ListenAddr)
 		if err != nil {
@@ -144,43 +164,43 @@ func Start(ctx context.Context) error {
 		}
 	}()
 	time.Sleep(time.Second * 1)
-	log.Print("Running BenchmarkFastLocks1000Clients1000RandomKeys")
 	start := time.Now()
+	// BenchmarkSequence1000Clients1000Keys()
+	// log.Print("BenchmarkSequence1000Clients1000Keys took sec: ", time.Since(start).Seconds())
+	// time.Sleep(time.Second * 1)
+	// start = time.Now()
 	BenchmarkFastLocks1000Clients1000RandomKeys()
-	log.Print("1m requests took sec: ", time.Since(start).Seconds())
-	time.Sleep(time.Second * 1)
-	start = time.Now()
-	BenchmarkSequence1000Clients1Key()
-	log.Print("1m requests took sec: ", time.Since(start).Seconds())
-	time.Sleep(time.Second * 1)
+	log.Print("BenchmarkFastLocks1000Clients1000RandomKeys took sec: ", time.Since(start).Seconds())
+	// time.Sleep(time.Second * 1)
 
 	return nil
 }
 
-func BenchmarkSequence1000Clients1Key() {
+func BenchmarkSequence1000Clients1000Keys() {
 	var wg sync.WaitGroup
-	counterURI := fasthttp.AcquireURI()
-	counterURI.Parse(nil, []byte("http://localhost:8081/db/123/sequence/1"))
-
 	c := fasthttp.Client{}
+	// c.Addr = "" + addr + ""
+	// c.MaxPendingRequests = 1000
+	c.NoDefaultUserAgentHeader = true
+	// c.MaxConns = 10000
 	c.MaxConnsPerHost = 10000
-	rreq := fasthttp.AcquireRequest()
-	rreesp := fasthttp.AcquireResponse()
-	rreq.SetURI(counterURI)
-	rreq.Header.SetMethod("DELETE")
-	err := c.Do(rreq, rreesp)
-	if err != nil {
-		panic(err)
+	var urls = []*fasthttp.URI{}
+	for i := 0; i < 10000; i++ {
+		lockURI := fasthttp.AcquireURI()
+		lockURI.Parse(nil, []byte(fmt.Sprintf("http://localhost"+addr+"/db/123/sequence/%d", i)))
+		urls = append(urls, lockURI)
 	}
 
 	for i := 0; i < 1000; i++ {
 		wg.Add(1)
 		go func(i int) {
 			defer wg.Done()
-			for j := 0; j < 100; j++ {
+			rnd := rand.New(rand.NewSource(time.Now().UnixNano()))
+			for j := 0; j < 1000; j++ {
 				req := fasthttp.AcquireRequest()
 				req.Header.SetMethod("POST")
-				req.SetURI(counterURI)
+				u := urls[rnd.Intn(10000)]
+				req.SetURI(u)
 				resp := fasthttp.AcquireResponse()
 				err := c.Do(req, resp)
 				if err != nil {
@@ -196,37 +216,52 @@ func BenchmarkSequence1000Clients1Key() {
 	}
 	wg.Wait()
 
-	rreq.Header.SetMethod("GET")
-	err = c.Do(rreq, rreesp)
-	if err != nil {
-		panic(err)
-	}
-	if string(rreesp.Body()) != fmt.Sprint(100000) {
-		panic("COUNTER MISMATCH " + string(rreesp.Body()) + " " + fmt.Sprint(100000))
-	}
-
-	fasthttp.ReleaseURI(counterURI)
 }
+
+// func BenchmarkFastLocks1000Clients1000RandomKeys() {
+// 	var wg sync.WaitGroup
+// 	for i := 0; i < 1000; i++ {
+// 		wg.Add(1)
+// 		go func(i int) {
+// 			defer wg.Done()
+// 			rnd := rand.New(rand.NewSource(time.Now().Unix()))
+// 			for j := 0; j < 1000; j++ {
+// 				id := fmt.Sprint(rnd.Int63())
+// 				h, err := fastLockHandler("1", id, 10, 10)
+// 				if err != nil {
+// 					panic(err)
+// 				}
+// 				fastUnlockHandler("1", id, h)
+// 			}
+// 		}(i)
+// 	}
+// 	wg.Wait()
+// }
 
 func BenchmarkFastLocks1000Clients1000RandomKeys() {
 	c := fasthttp.Client{}
-	c.MaxConnsPerHost = 10000
+	c.MaxConnsPerHost = 30000
+	c.ReadBufferSize = 10000
+	c.WriteBufferSize = 10000
+	c.ReadTimeout = time.Second * 5
+	c.WriteTimeout = time.Second * 5
+	c.NoDefaultUserAgentHeader = true
+	c.DisableHeaderNamesNormalizing = true
+	c.DisablePathNormalizing = true
+	c.ConnPoolStrategy = fasthttp.LIFO
 	var wg sync.WaitGroup
 
-	for i := 0; i < 1000; i++ {
+	for i := 0; i < 400; i++ {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			for j := 0; j < 100; j++ {
-				lockURI := fasthttp.AcquireURI()
-				lockURI.Parse(nil, []byte(fmt.Sprintf("http://localhost:8081/db/123/flock/%d?dur=10&wait=10", j)))
-				unlockURI := fasthttp.AcquireURI()
-				unlockURI.Parse(nil, []byte(fmt.Sprintf("http://localhost:8081/db/123/flock/%d", j)))
-
-				req := fasthttp.AcquireRequest()
+			rnd := rand.New(rand.NewSource(time.Now().UnixNano()))
+			req := fasthttp.AcquireRequest()
+			resp := fasthttp.AcquireResponse()
+			for j := 0; j < 100000/400; j++ {
 				req.Header.SetMethod("POST")
-				resp := fasthttp.AcquireResponse()
-
+				lockURI := fasthttp.AcquireURI()
+				lockURI.Parse(nil, []byte(fmt.Sprintf("http://localhost"+addr+"/db/123/flock/%d?dur=10&wait=10", rnd.Intn(100000))))
 				req.SetURI(lockURI)
 				err := c.Do(req, resp)
 				if err != nil {
@@ -235,7 +270,7 @@ func BenchmarkFastLocks1000Clients1000RandomKeys() {
 				if resp.StatusCode() != 200 {
 					panic(string(resp.Body()))
 				}
-				req.SetURI(unlockURI)
+				req.SetURI(lockURI)
 				req.Header.SetMethod("DELETE")
 				err = c.Do(req, resp)
 				if err != nil {
@@ -244,11 +279,57 @@ func BenchmarkFastLocks1000Clients1000RandomKeys() {
 				if resp.StatusCode() != 200 {
 					panic(string(resp.Body()))
 				}
-				fasthttp.ReleaseRequest(req)
-				fasthttp.ReleaseResponse(resp)
 				fasthttp.ReleaseURI(lockURI)
-				fasthttp.ReleaseURI(unlockURI)
 			}
+			fasthttp.ReleaseRequest(req)
+			fasthttp.ReleaseResponse(resp)
+		}()
+	}
+	wg.Wait()
+}
+
+func BenchmarkKV1000Clients1000000RandomKeys() {
+	c := fasthttp.Client{}
+	c.MaxConnsPerHost = 30000
+	c.ReadBufferSize = 10000
+	c.WriteBufferSize = 10000
+	c.NoDefaultUserAgentHeader = true
+	c.DisableHeaderNamesNormalizing = true
+	c.DisablePathNormalizing = true
+	c.ConnPoolStrategy = fasthttp.LIFO
+	var wg sync.WaitGroup
+
+	for i := 0; i < 1000; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			rnd := rand.New(rand.NewSource(time.Now().Unix()))
+			req := fasthttp.AcquireRequest()
+			resp := fasthttp.AcquireResponse()
+			for j := 0; j < 1000; j++ {
+				kvURI := fasthttp.AcquireURI()
+				kvURI.Parse(nil, []byte(fmt.Sprintf("http://localhost"+addr+"/db/123/kv/%d", rnd.Int63())))
+				req.Header.SetMethod("POST")
+				req.SetURI(kvURI)
+				err := c.Do(req, resp)
+				if err != nil {
+					panic(err)
+				}
+				if resp.StatusCode() != 200 {
+					panic(string(resp.Body()))
+				}
+				req.SetURI(kvURI)
+				req.Header.SetMethod("DELETE")
+				err = c.Do(req, resp)
+				if err != nil {
+					panic(err)
+				}
+				if resp.StatusCode() != 200 {
+					panic(string(resp.Body()))
+				}
+			}
+			fasthttp.ReleaseRequest(req)
+			fasthttp.ReleaseResponse(resp)
 		}()
 	}
 	wg.Wait()

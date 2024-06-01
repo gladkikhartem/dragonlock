@@ -89,7 +89,7 @@ func (p *Store) FlushLoop(ctx context.Context) error {
 			n := p.Flush()
 			if n == 0 {
 				// avoid infinite loops if no data needs to be flushed
-				time.Sleep(time.Millisecond * 5)
+				time.Sleep(time.Millisecond * 1)
 			}
 		}
 	}

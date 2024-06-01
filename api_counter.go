@@ -9,7 +9,7 @@ import (
 
 // API that allows incrementing / decrementing counter
 // The different between this and Sequence is that
-// sequence always goes up by 1, and no duplicated are possible.
+// sequence always goes up by 1, and no duplicates are possible.
 // But counter can be manually controlled
 func AddCounterHandler(ctx *fasthttp.RequestCtx) {
 	acc, id, err := getAccID(ctx)

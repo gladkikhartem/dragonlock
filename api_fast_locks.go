@@ -14,7 +14,7 @@ import (
 var fmu = []*fastLockMutex{}
 
 func init() {
-	for i := 0; i < 100; i++ {
+	for i := 0; i < 1000; i++ {
 		fmu = append(fmu, newFastLockMutex())
 	}
 }
@@ -23,7 +23,7 @@ func GetLock(id string) *fastLockMutex {
 	h := fnv.New64a()
 	h.Write([]byte(id))
 	kid := h.Sum64()
-	return fmu[kid%100]
+	return fmu[kid%1000]
 }
 
 func FastLockHandler(ctx *fasthttp.RequestCtx) {
@@ -53,24 +53,21 @@ func FastLockHandler(ctx *fasthttp.RequestCtx) {
 		return
 	}
 
-	cid := acc + string([]byte{0}) + id
-	ch := make(chan bool)
-	handle, ok := GetLock(cid).Lock(cid, ch, wait)
-	if !ok {
-		ctx.Error("lock timed out", 400)
+	handle, err := fastLockHandler(acc, id, dur, wait)
+	if err != nil {
+		ctx.Error(err.Error(), 400)
 		return
 	}
-
-	go func() {
-		t := time.NewTimer(time.Second * time.Duration(dur))
-		select {
-		case <-t.C:
-			GetLock(cid).UnlockTimeout(cid, ch) // try unlock by timeout
-		case <-ch:
-			t.Stop() // all is good
-		}
-	}()
 	_, _ = ctx.Write([]byte(fmt.Sprint(handle)))
+}
+
+func fastLockHandler(acc, id string, dur, wait int) (int64, error) {
+	cid := acc + string([]byte{0}) + id
+	handle, ok := GetLock(cid).Lock(cid, dur, wait)
+	if !ok {
+		return 0, fmt.Errorf("lock timed out")
+	}
+	return handle, nil
 }
 
 func FastUnlockHandler(ctx *fasthttp.RequestCtx) {
@@ -87,6 +84,10 @@ func FastUnlockHandler(ctx *fasthttp.RequestCtx) {
 			return
 		}
 	}
+	fastUnlockHandler(acc, id, handle)
+}
+
+func fastUnlockHandler(acc, id string, handle int64) {
 	cid := acc + string([]byte{0}) + id
 	ch := GetLock(cid).Unlock(cid, handle)
 	if ch != nil {
@@ -104,7 +105,7 @@ type fastLockMutex struct {
 
 func newFastLockMutex() *fastLockMutex {
 	l := sync.Mutex{}
-	km := &fastLockMutex{c: sync.NewCond(&l), l: &l, s: make(map[string]chan bool), handles: map[string]int64{}}
+	km := &fastLockMutex{c: sync.NewCond(&l), l: &l, handles: map[string]int64{}, s: map[string]chan bool{}}
 	go func() {
 		// wake up all locks to make sure that
 		// some locks don't stuck forever waiting and can handle
@@ -133,10 +134,13 @@ func (km *fastLockMutex) Unlock(key string, handle int64) chan bool {
 	if handle != 0 && km.handles[key] != handle {
 		return nil
 	}
-	ret := km.s[key]
+	ch := km.s[key]
+	if ch == nil {
+		return nil
+	}
 	delete(km.s, key)
-	km.c.Broadcast()
-	return ret
+	km.c.Signal()
+	return ch
 }
 
 func (km *fastLockMutex) UnlockTimeout(key string, ch chan bool) chan bool {
@@ -148,22 +152,36 @@ func (km *fastLockMutex) UnlockTimeout(key string, ch chan bool) chan bool {
 	}
 	// unlock only if value is the same
 	delete(km.s, key)
-	km.c.Broadcast()
+	km.c.Signal()
 	return ret
 }
 
-func (km *fastLockMutex) Lock(key string, ch chan bool, wait int) (int64, bool) {
+func (km *fastLockMutex) Lock(key string, dur, wait int) (int64, bool) {
 	start := time.Now().Unix()
 	var rnd = rand.New(rand.NewSource(time.Now().Unix()))
 	handle := rnd.Int63()
 	km.l.Lock()
 	defer km.l.Unlock()
 	for km.locked(key) {
+		// woke up by broadcast - i.e. lock operation timed out
+		if int(time.Now().Unix()-start) > wait {
+			return 0, false
+		}
 		km.c.Wait()
 	}
-	if int(time.Now().Unix()-start) > wait {
-		return 0, false
-	}
+
+	// lock, but unlock this key automatically if expires
+	ch := make(chan bool)
+	go func() {
+		t := time.NewTimer(time.Second * time.Duration(dur))
+		select {
+		case <-t.C:
+			km.UnlockTimeout(key, ch) // try unlock by timeout
+		case <-ch:
+			// closed due to success
+		}
+		t.Stop()
+	}()
 	km.s[key] = ch
 	km.handles[key] = handle
 	return handle, true

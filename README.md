@@ -4,7 +4,7 @@ A swiss-knife set of useful high-performance APIs running on a single server int
 
 
 ## Features
-* 5 separate APIs that can deliver 20k req/second on $4 VPS.
+* 5 separate APIs that can deliver 20k req/second on $4 VPS or 150k req/second on $45 VPS
 * Strongly consistent writes & frequent backups to S3.
 * Small & simple codebase 
 
