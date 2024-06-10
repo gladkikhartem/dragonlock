@@ -17,7 +17,7 @@ import (
 var fmu = []*fastLockMutex{}
 
 func InitFastLocks() {
-	for i := 0; i < 1000; i++ {
+	for i := 0; i < mCount; i++ {
 		fmu = append(fmu, newFastLockMutex())
 	}
 	iter, err := store.db.NewIter(&pebble.IterOptions{
@@ -61,7 +61,7 @@ func GetLock(id string) *fastLockMutex {
 	h := fnv.New64a()
 	h.Write([]byte(id))
 	kid := h.Sum64()
-	return fmu[kid%1000]
+	return fmu[kid%mCount]
 }
 
 func GetLockHandler(ctx *fasthttp.RequestCtx) {

@@ -13,9 +13,11 @@
 // happen in sequential manner. When we have multiple updates simultaneously
 // each of them will modify value in RAM and wait for update to be flushed to disk.
 // As soon as data of last update was flushed to disk - all updates consider
-// opration as being successful.
+// operation as being successful.
 //
-// Updates can also be batched, so multiple keys can be updated at the same time
+// This technique allows us to execute 1000s of sequential updates to a set of
+// releated db records under single ID, without having to wait for each update
+// to be flushed to disk.
 package main
 
 import (
