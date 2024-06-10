@@ -1,105 +1,67 @@
 package main
 
 import (
-	"encoding/json"
-	"errors"
+	"clouddragon/cd"
+	"fmt"
+	"hash/fnv"
+	"log"
 	"strconv"
+	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/cockroachdb/pebble"
 	"github.com/valyala/fasthttp"
 )
 
-//go:generate msgp
-type Lock struct {
-	Owner string `json:"o" msg:"o"`
-	Till  int64  `json:"t" msg:"t"`
-}
+var fmu = []*fastLockMutex{}
 
-var lockErr = errors.New("locked")
-
-// This API stores locks and allows lock owner to extend the lock
-// Very useful if you want to make sure some script is executed in singleton
-// curl -f -X POST "http://localhost:8081/db/1/lock/1?id=123&dur=30" && ...
-// and now you know no other process will run this operation for next 30 seconds
-func SetLockHandler(ctx *fasthttp.RequestCtx) {
-	acc, id, err := getAccID(ctx)
-	if err != nil {
-		ctx.Error(err.Error(), 400)
-		return
+func InitFastLocks() {
+	for i := 0; i < 1000; i++ {
+		fmu = append(fmu, newFastLockMutex())
 	}
-	cid := compID(SequentialIDPrefix, acc, id)
-	args := ctx.Request.URI().QueryArgs()
-	owner := string(args.Peek("owner"))
-	if len(owner) > 255 {
-		ctx.Error("owner is not in range 0~255", 400)
-		return
-	}
-	duration := args.Peek("dur")
-	if len(duration) > 6 || len(duration) == 0 {
-		ctx.Error("duration is not in range 0~6", 400)
-		return
-	}
-	dur, err := strconv.Atoi(string(duration))
-	if err != nil {
-		ctx.Error("failed to parse duration "+err.Error(), 400)
-		return
-	}
-	var l Lock
-	err = store.Update(cid, func() error {
-		d, closer, err := store.db.Get(cid)
-		if err != nil && err != pebble.ErrNotFound {
-			return err
-		}
-		// no lock present - can lock
-		if err == pebble.ErrNotFound {
-			l.Till = time.Now().Add(time.Second * time.Duration(dur)).Unix()
-			l.Owner = owner
-			nd, err := l.MarshalMsg(nil)
-			if err != nil {
-				return err
-			}
-			return store.db.Set(cid, nd, pebble.NoSync)
-		}
-		defer closer.Close()
-
-		_, err = l.UnmarshalMsg(d)
-		if err != nil {
-			return err
-		}
-		// already timed out - can lock
-		if time.Now().Unix() > l.Till {
-			l.Till = time.Now().Add(time.Second * time.Duration(dur)).Unix()
-			l.Owner = owner
-			nd, err := l.MarshalMsg(nil)
-			if err != nil {
-				return err
-			}
-			return store.db.Set(cid, nd, pebble.NoSync)
-		}
-		// allow owner to extend lock
-		if len(l.Owner) != 0 && l.Owner == owner {
-			l.Till = time.Now().Add(time.Second * time.Duration(dur)).Unix()
-			nd, err := l.MarshalMsg(nil)
-			if err != nil {
-				return err
-			}
-			return store.db.Set(cid, nd, pebble.NoSync)
-		}
-		// lock exists - can't lock more
-		return lockErr
+	iter, err := store.db.NewIter(&pebble.IterOptions{
+		LowerBound: []byte{cd.LocksPrefix},
+		UpperBound: []byte{cd.LocksPrefix + 1},
 	})
-	if err == lockErr {
-		ctx.SetStatusCode(409)
-	} else if err != nil {
-		ctx.Error("err updating: "+err.Error(), 400)
-		return
-	}
-	d, err := json.Marshal(l)
 	if err != nil {
 		panic(err)
 	}
-	_, _ = ctx.Write(d)
+	for iter.First(); iter.Valid(); iter.Next() {
+		key := iter.Key()
+		value := iter.Value()
+		cid := fromCompID1(key)
+		km := GetLock(string(cid))
+		var f cd.Lock
+		_, err := f.UnmarshalMsg(value)
+		if err != nil {
+			panic(err)
+		}
+		dur := f.Till - time.Now().Unix()
+		if dur < 0 {
+			err := store.db.Delete(key, pebble.NoSync)
+			if err != nil {
+				panic(err)
+			}
+			continue
+		}
+		// make sure that after reboot counter doesn't start with
+		// number lower than any lock handle stored in
+		if handleCounter < f.Handle {
+			handleCounter = f.Handle + 1
+		}
+		_, ok := km.Lock(cid, int(dur), 0, f.Handle)
+		if !ok {
+			panic("lock should always work during startup")
+		}
+	}
+}
+
+func GetLock(id string) *fastLockMutex {
+	h := fnv.New64a()
+	h.Write([]byte(id))
+	kid := h.Sum64()
+	return fmu[kid%1000]
 }
 
 func GetLockHandler(ctx *fasthttp.RequestCtx) {
@@ -108,72 +70,221 @@ func GetLockHandler(ctx *fasthttp.RequestCtx) {
 		ctx.Error(err.Error(), 400)
 		return
 	}
-	cid := compID(SequentialIDPrefix, acc, id)
-	d, closer, err := store.db.Get(cid)
+	cid := acc + string([]byte{0}) + id
+
+	d, closer, err := store.db.Get(compID1(cd.LocksPrefix, cid))
 	if err != nil {
 		if err == pebble.ErrNotFound {
-			ctx.Error("not locked", 404)
+			ctx.Error(err.Error(), 404)
+			return
 		} else {
-			ctx.Error("db read err: "+err.Error(), 500)
+			ctx.Error(err.Error(), 500)
+			return
 		}
-		return
 	}
 	defer closer.Close()
-	var l Lock
-	_, err = l.UnmarshalMsg(d)
+
+	var f cd.Lock
+	_, err = f.UnmarshalMsg(d)
 	if err != nil {
-		ctx.Error("db decode err: "+err.Error(), 500)
+		ctx.Error(err.Error(), 500)
 		return
 	}
-	if time.Now().Unix() > l.Till {
-		ctx.Error("not locked", 404)
-		return
-	}
-	_, _ = ctx.Write(d)
+
 }
 
-func DeleteLockHandler(ctx *fasthttp.RequestCtx) {
+func FastLockHandler(ctx *fasthttp.RequestCtx) {
 	acc, id, err := getAccID(ctx)
 	if err != nil {
 		ctx.Error(err.Error(), 400)
 		return
 	}
-	args := ctx.Request.URI().QueryArgs()
-	owner := string(args.Peek("owner"))
-	if len(owner) > 255 {
-		ctx.Error("owner is not in range 0~255", 400)
+	duration := ctx.Request.URI().QueryArgs().Peek("dur")
+	if len(duration) > 3 || len(duration) == 0 {
+		ctx.Error("duration len is not in range 0~3", 400)
 		return
 	}
-	cid := compID(SequentialIDPrefix, acc, id)
-	var l Lock
-	err = store.Update(cid, func() error {
-		d, closer, err := store.db.Get(cid)
-		if err != nil && err != pebble.ErrNotFound {
-			return err
-		}
-		// lock deleted - skip
-		if err == pebble.ErrNotFound {
-			return nil
-		}
-		defer closer.Close()
-		_, err = l.UnmarshalMsg(d)
-		if err != nil {
-			return err
-		}
-		// already timed out
-		if time.Now().Unix() > l.Till {
-			return store.db.Delete(cid, pebble.NoSync)
-		}
-		// owner deletes his lock
-		if l.Owner != "" && owner == l.Owner {
-			return store.db.Delete(cid, pebble.NoSync)
-		}
-		// lock exists - can't delete
-		return lockErr
-
-	})
+	dur, err := strconv.Atoi(string(duration))
 	if err != nil {
-		ctx.Error("err deleting: "+err.Error(), 400)
+		ctx.Error("failed to parse duration "+err.Error(), 400)
 		return
 	}
+	timeout := ctx.Request.URI().QueryArgs().Peek("wait")
+	if len(timeout) > 3 || len(timeout) == 0 {
+		ctx.Error("wait len is not in range 0~3", 400)
+		return
+	}
+	wait, err := strconv.Atoi(string(timeout))
+	if err != nil {
+		ctx.Error("failed to parse timeout value "+err.Error(), 400)
+		return
+	}
+
+	handle, err := fastLockHandler(acc, id, dur, wait)
+	if err == cd.ErrNotLocked {
+		ctx.Error(err.Error(), 409)
+		return
+	}
+	if err != nil {
+		ctx.Error(err.Error(), 400)
+		return
+	}
+	_, _ = ctx.Write([]byte(`{"h": `))
+	_, _ = ctx.Write([]byte(fmt.Sprint(handle)))
+	_, _ = ctx.Write([]byte(`}`))
+}
+
+func fastLockHandler(acc, id string, dur, wait int) (int64, error) {
+	cid := acc + string([]byte{0}) + id
+	handle, ok := GetLock(cid).Lock(cid, dur, wait, 0)
+	if !ok {
+		return 0, cd.ErrNotLocked
+	}
+	l := cd.Lock{
+		Handle: handle,
+		Till:   time.Now().Unix() + int64(dur),
+	}
+	d, err := l.MarshalMsg(nil)
+	if err != nil {
+		return 0, err
+	}
+	return handle, store.db.Set(compID1(cd.LocksPrefix, cid), d, pebble.Sync)
+}
+
+func FastUnlockHandler(ctx *fasthttp.RequestCtx) {
+	acc, id, err := getAccID(ctx)
+	if err != nil {
+		ctx.Error(err.Error(), 400)
+		return
+	}
+
+	handle := int64(0)
+	h := ctx.Request.URI().QueryArgs().Peek("h")
+	if len(h) > 0 {
+		handle, err = strconv.ParseInt(string(h), 10, 64)
+		if err != nil {
+			ctx.Error(err.Error(), 400)
+			return
+		}
+	}
+	err = fastUnlockHandler(acc, id, handle)
+	if err != nil {
+		ctx.Error(err.Error(), 400)
+		return
+	}
+}
+
+func fastUnlockHandler(acc, id string, handle int64) error {
+	cid := acc + string([]byte{0}) + id
+	ch, err := GetLock(cid).Unlock(cid, handle)
+	if err != nil {
+		return err
+	}
+	if ch != nil {
+		close(ch)
+	}
+	return store.db.Delete(compID1(cd.LocksPrefix, cid), pebble.NoSync)
+}
+
+type FLock struct {
+	ch     chan bool
+	handle int64
+}
+
+// similar to keyed mutex, but allows for unlock timeouts
+type fastLockMutex struct {
+	c *sync.Cond
+	l sync.Locker
+	m map[string]FLock
+}
+
+func newFastLockMutex() *fastLockMutex {
+	l := sync.Mutex{}
+	km := &fastLockMutex{c: sync.NewCond(&l), l: &l, m: map[string]FLock{}}
+	go func() {
+		// wake up all locks to make sure that
+		// some locks don't stuck forever waiting and can handle
+		// timeout event
+
+		// MEMORY LEAK. TODO: make a shutdown procedure for this.
+		// For now it should be ok, since this is a singleton struct
+		t := time.NewTicker(time.Second)
+		for range t.C {
+			km.l.Lock()
+			km.c.Broadcast()
+			km.l.Unlock()
+		}
+	}()
+	return km
+}
+
+func (km *fastLockMutex) locked(key string) (ok bool) {
+	_, ok = km.m[key]
+	return ok
+}
+
+func (km *fastLockMutex) Unlock(key string, handle int64) (chan bool, error) {
+	km.l.Lock()
+	defer km.l.Unlock()
+	fl, found := km.m[key]
+	if !found {
+		return nil, nil
+	}
+	log.Print(fl.handle, " ", handle)
+	if handle != 0 && fl.handle != handle {
+		return nil, fmt.Errorf("handle mismatch")
+	}
+	delete(km.m, key)
+	km.c.Signal()
+	return fl.ch, nil
+}
+
+func (km *fastLockMutex) UnlockTimeout(key string, ch chan bool) chan bool {
+	km.l.Lock()
+	defer km.l.Unlock()
+	fl := km.m[key]
+	if fl.ch != ch {
+		return nil
+	}
+	// unlock only if value is the same
+	delete(km.m, key)
+	km.c.Signal()
+	return fl.ch
+}
+
+var handleCounter = int64(1)
+
+func (km *fastLockMutex) Lock(key string, dur, wait int, oldHandle int64) (int64, bool) {
+	start := time.Now().Unix()
+	handle := atomic.AddInt64(&handleCounter, 1)
+	if oldHandle != 0 {
+		handle = oldHandle
+	}
+	km.l.Lock()
+	defer km.l.Unlock()
+	for km.locked(key) {
+		// woke up by broadcast - i.e. lock operation timed out
+		if wait == 0 || int(time.Now().Unix()-start) > wait {
+			return 0, false
+		}
+		km.c.Wait()
+	}
+
+	// lock, but unlock this key automatically if expires
+	ch := make(chan bool)
+	go func() {
+		t := time.NewTimer(time.Second * time.Duration(dur))
+		select {
+		case <-t.C:
+			km.UnlockTimeout(key, ch) // try unlock by timeout
+		case <-ch:
+			// closed due to success
+		}
+		t.Stop()
+	}()
+	km.m[key] = FLock{
+		ch:     ch,
+		handle: handle,
+	}
+	return handle, true
 }

@@ -1,6 +1,7 @@
 package main
 
 import (
+	"clouddragon/cd"
 	"strconv"
 
 	"github.com/cockroachdb/pebble"
@@ -28,7 +29,7 @@ func AddCounterHandler(ctx *fasthttp.RequestCtx) {
 		ctx.Error("failed to parse add "+err.Error(), 400)
 		return
 	}
-	cid := compID(CounterPrefix, acc, id)
+	cid := compID(cd.CounterPrefix, acc, id)
 	newCtr := int64(0)
 	err = store.Update(cid, func() error {
 		ctr, err := GetInt64(cid, store.db)
@@ -56,7 +57,7 @@ func DeleteCounterHandler(ctx *fasthttp.RequestCtx) {
 		ctx.Error(err.Error(), 400)
 		return
 	}
-	cid := compID(CounterPrefix, acc, id)
+	cid := compID(cd.CounterPrefix, acc, id)
 	err = store.Update(cid, func() error {
 		return store.db.Delete(cid, pebble.NoSync)
 	})
@@ -72,7 +73,7 @@ func GetCounterHandler(ctx *fasthttp.RequestCtx) {
 		ctx.Error(err.Error(), 400)
 		return
 	}
-	cid := compID(CounterPrefix, acc, id)
+	cid := compID(cd.CounterPrefix, acc, id)
 	seq, err := GetInt64(cid, store.db)
 	if err != nil {
 		ctx.Error("err gettting: "+err.Error(), 400)

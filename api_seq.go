@@ -1,6 +1,7 @@
 package main
 
 import (
+	"clouddragon/cd"
 	"strconv"
 
 	"github.com/cockroachdb/pebble"
@@ -13,7 +14,7 @@ func NextSequenceHandler(ctx *fasthttp.RequestCtx) {
 		ctx.Error(err.Error(), 400)
 		return
 	}
-	cid := compID(SequentialIDPrefix, acc, id)
+	cid := compID(cd.SequentialIDPrefix, acc, id)
 	newSeq := int64(0)
 	err = store.Update(cid, func() error {
 		seq, err := GetInt64(cid, store.db)
@@ -41,7 +42,7 @@ func DeleteSequenceHandler(ctx *fasthttp.RequestCtx) {
 		ctx.Error(err.Error(), 400)
 		return
 	}
-	cid := compID(SequentialIDPrefix, acc, id)
+	cid := compID(cd.SequentialIDPrefix, acc, id)
 	err = store.Update(cid, func() error {
 		return store.db.Delete(cid, pebble.NoSync)
 	})
@@ -57,7 +58,7 @@ func GetSequenceHandler(ctx *fasthttp.RequestCtx) {
 		ctx.Error(err.Error(), 400)
 		return
 	}
-	cid := compID(SequentialIDPrefix, acc, id)
+	cid := compID(cd.SequentialIDPrefix, acc, id)
 	seq, err := GetInt64(cid, store.db)
 	if err != nil {
 		ctx.Error("err gettting: "+err.Error(), 400)

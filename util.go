@@ -9,14 +9,6 @@ import (
 	"github.com/valyala/fasthttp"
 )
 
-const (
-	SequentialIDPrefix = 1
-	CounterPrefix      = 2
-	LocksPrefix        = 3
-	KVPrefix           = 4
-	FIFOPrefix         = 5
-)
-
 type Getter interface {
 	Get(key []byte) ([]byte, io.Closer, error)
 }
@@ -61,6 +53,21 @@ func compID(prefix int, acc, id string) []byte {
 	b = append(b, 0)
 	b = append(b, id...)
 	return b
+}
+
+// TableID|ID
+// 0 byte delimited is used to construct composite key from Acc and ID
+func compID1(prefix int, id string) []byte {
+	b := make([]byte, 0, len(id)+1)
+	b = append(b, byte(prefix))
+	b = append(b, id...)
+	return b
+}
+
+// TableID|ID
+// 0 byte delimited is used to construct composite key from Acc and ID
+func fromCompID1(key []byte) string {
+	return string(key[1:])
 }
 
 func getAccID(ctx *fasthttp.RequestCtx) (string, string, error) {

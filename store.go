@@ -38,18 +38,29 @@ type Store struct {
 	pending int  // number of requests inflight (track for graceful shutdown)
 }
 
-func NewStore(db *pebble.DB) *Store {
+// Having multiple mutexes reduces on sync.Cond and sync.Mutex
+// proportional to amount of mutexes.
+// This consumes just a few kb of memory, but provides significant
+// boost to performance
+const mCount = 100
 
+func NewStore(db *pebble.DB) *Store {
 	s := &Store{
 		db:   db,
 		done: make(chan struct{}),
 	}
-	for i := 0; i < 100; i++ {
+	for i := 0; i < mCount; i++ {
 		s.kmu = append(s.kmu, newLocker())
 	}
 	return s
 }
 
+// Flush ensure that all in-memory writes that happened before had
+// been flushed to persistent storage.
+// In this code writes are written as "async" pebble writes, which
+// means pebble manages timing on it's own. What we do here is just
+// issues single Sync write to WAL and wait for it to complete, ensuring that
+// all async writes before were flushed to WAL
 func (p *Store) Flush() int {
 	p.mu.Lock()
 	count := p.count
@@ -60,9 +71,6 @@ func (p *Store) Flush() int {
 	p.mu.Unlock()
 
 	if count > 0 {
-		// just make a write to WAL and wait for it to complete.
-		// since we have only 1 WAL and writes are sequential -
-		// if this operation finish - it means all previous updates are flushed too
 		err := p.db.LogData([]byte("f"), pebble.Sync)
 		if err != nil {
 			panic(err)
@@ -72,6 +80,7 @@ func (p *Store) Flush() int {
 	return pending
 }
 
+// FlushLoop calls Flush constantly in a loop
 func (p *Store) FlushLoop(ctx context.Context) error {
 	for {
 		select {
@@ -95,23 +104,32 @@ func (p *Store) FlushLoop(ctx context.Context) error {
 	}
 }
 
-// UpdateFunc should update only data relevant to the key
+// UpdateFunc should update only data relevant to the key.
+// It can create multiple records in DB, but they should
+// never overlap with data of another keys
 type UpdateFunc func() error
 
+// UpdateFunc should update only data relevant to the key.
+// It can create multiple records in DB, but they should
+// never overlap with data of another keys
+type GetFunc func(db *pebble.DB) error
+
+// singletonUpdate makes sure all updates are done one after the other.
 func (p *Store) singletonUpdate(key []byte, f UpdateFunc) error {
-	// make sure all updates are done one after the other
-	// there are possible collisions for unrelated keys, but it's not a problem
-	// since it just means 2 updates for different keys occasionally will wait for each
-	// other
 	h := fnv.New64a()
 	h.Write(key)
 	kid := h.Sum64()
-	p.kmu[kid%100].Lock(kid)
-	defer p.kmu[kid%100].Unlock(kid)
-
+	p.kmu[kid%mCount].Lock(kid)
+	defer p.kmu[kid%mCount].Unlock(kid)
 	return f()
 }
 
+func (p *Store) DB() Getter {
+	return p.db
+}
+
+// Update the data for the key using UpdateFunc.
+// UpdateFunc will simply call Store
 func (p *Store) Update(key []byte, f UpdateFunc) error {
 	p.mu.Lock()
 	if p.stopped {
