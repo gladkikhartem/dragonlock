@@ -116,11 +116,13 @@ type GetFunc func(db *pebble.DB) error
 
 // singletonUpdate makes sure all updates are done one after the other.
 func (p *Store) singletonUpdate(key []byte, f UpdateFunc) error {
-	h := fnv.New64a()
-	h.Write(key)
-	kid := h.Sum64()
-	p.kmu[kid%mCount].Lock(kid)
-	defer p.kmu[kid%mCount].Unlock(kid)
+	if len(key) > 0 {
+		h := fnv.New64a()
+		h.Write(key)
+		kid := h.Sum64()
+		p.kmu[kid%mCount].Lock(kid)
+		defer p.kmu[kid%mCount].Unlock(kid)
+	}
 	return f()
 }
 

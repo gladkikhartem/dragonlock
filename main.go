@@ -50,6 +50,14 @@ func main() {
 
 var store *Store
 
+/*
+
+// UPDATE - execute writes synchronously for 1 DB
+//
+// LOCK/UNLOCK - work on individual lock logic
+//
+*/
+
 func Start(ctx context.Context) error {
 	var cfg Config
 	yd, err := os.ReadFile("config.yml")
