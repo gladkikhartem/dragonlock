@@ -9,32 +9,27 @@ A swiss-knife set of useful high-performance APIs running on a single server int
 * Small & simple codebase 
 
 ## API List
-* Mutex API (In memory)
+* Lock API (aka Mutex)
     * Allows to execute actions in exclusionary manner.  API blocks until other process releases the lock, allowing for 100s of sequential actions per second for one key.
+    * You can call this api from bash scripts to protect against concurrent runs (`curl -f -X POST "{url}/db/1/lock/1?id=123&dur=30"`)
 * Sequence API
     * Allows to generate monotonically increasing numbers. Can be useful for id generation.
 * Counter API
     * Allows to increment/decrement integer value atomically. 
 * Key/Value API
     * Simple Key Value store with ability to perform version check. In case you need some caching layer between your app instances.
-* Locks API (Persistent)
-    * This is similar API to Mutex, but persisted on disk and it's non-blocking. You can call this api from bash scripts to protect against concurrent runs (`curl -f -X POST "{url}/db/1/lock/1?id=123&dur=30"`)
-:
+    * This is similar API to Mutex, but persisted on disk and it's non-blocking. 
+
 #### TODO LIST
 * Docker
 * Idempotency
 * Tests & Benchmarks
 * Admin page & Auth mechanisms
 * Queues API
-    * Regular and FIFO queues
-* Cron API
-    * Run HTTP tasks on schedule with cron
-* Tasks API 
-    * HTTP Events scheduled for certain time. like Google Tasks
+    * FIFO queues
+    * Scheduled queues (send message only at XXX time)
 * Ratelimit API
-    * Global ratelimits for certain operations
-* JS Scripting API
-    * Execute business logic using JS
+    * Global ratelimits for certain operations by ID (burst logic + ratelimit)
 * WS State/Configuration management
     * Make sure all subscribed hosts have same config
 * Service Discovery
@@ -42,3 +37,4 @@ A swiss-knife set of useful high-performance APIs running on a single server int
 * Load balancer integration (HAPROXY, etc)
     * Scalability in case you need > 50k req/second
 * Improve APIs with metrics, monitoring & admin options.
+
