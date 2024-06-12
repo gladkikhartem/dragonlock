@@ -3,18 +3,10 @@ package main
 import (
 	"encoding/binary"
 	"fmt"
-	"io"
 
 	"github.com/cockroachdb/pebble"
 	"github.com/valyala/fasthttp"
 )
-
-type Getter interface {
-	Get(key []byte) ([]byte, io.Closer, error)
-}
-type Setter interface {
-	Set(key, value []byte, _ *pebble.WriteOptions) error
-}
 
 func Int64ToByte(val int64) []byte {
 	buf := make([]byte, 8)
@@ -25,7 +17,7 @@ func ByteToInt64(d []byte) int64 {
 	return int64(binary.LittleEndian.Uint64(d))
 }
 
-func GetInt64(key []byte, b Getter) (*int64, error) {
+func GetInt64(key []byte, b *pebble.Batch) (*int64, error) {
 	d, closer, err := b.Get([]byte(key))
 	if err != nil && err != pebble.ErrNotFound {
 		return nil, fmt.Errorf("DB ERR %v", err.Error())
@@ -38,7 +30,7 @@ func GetInt64(key []byte, b Getter) (*int64, error) {
 	return &seq, nil
 }
 
-func SetInt64(key []byte, val int64, b Setter) error {
+func SetInt64(key []byte, val int64, b *pebble.Batch) error {
 	buf := make([]byte, 8)
 	binary.LittleEndian.PutUint64(buf, uint64(val))
 	return b.Set(key, buf, pebble.NoSync)
@@ -70,24 +62,15 @@ func fromCompID1(key []byte) string {
 	return string(key[1:])
 }
 
-func getAccID(ctx *fasthttp.RequestCtx) (string, string, error) {
+func getAcc(ctx *fasthttp.RequestCtx) (string, error) {
 	acc := ctx.UserValue("acc").(string)
 	if len(acc) > 255 || len(acc) == 0 {
-		return "", "", fmt.Errorf("len is not in range 0~255")
+		return "", fmt.Errorf("len is not in range 0~255")
 	}
 	for _, v := range acc {
 		if v == 0 {
-			return "", "", fmt.Errorf("0 is not allowed as a character in acc name")
+			return "", fmt.Errorf("0 is not allowed as a character in acc name")
 		}
 	}
-	id := ctx.UserValue("id").(string)
-	if len(id) > 255 || len(id) == 0 {
-		return "", "", fmt.Errorf("id is not in range 0~255")
-	}
-	for _, v := range id {
-		if v == 0 {
-			return "", "", fmt.Errorf("0 is not allowed as a character in id")
-		}
-	}
-	return acc, id, nil
+	return acc, nil
 }

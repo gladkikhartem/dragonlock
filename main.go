@@ -172,25 +172,27 @@ func Start(ctx context.Context) error {
 		// If explicit locking is performed - we will have to make sure lock
 		// is flushed together with operations result to DB. (in a single batch)
 		// and we need to schedule automatic unlock
-		//
+		// //
 
-		router.POST("/db/:acc/lock/:id", FastLockHandler)
-		router.DELETE("/db/:acc/lock/:id", FastUnlockHandler)
+		router.POST("/db/:acc", RequestHandler)
 
-		router.GET("/db/:acc/seq/:id", GetSequenceHandler)
-		router.POST("/db/:acc/seq/:id", NextSequenceHandler)
-		router.DELETE("/db/:acc/seq/:id", DeleteSequenceHandler)
+		// router.POST("/db/:acc/lock/:id", FastLockHandler)
+		// router.DELETE("/db/:acc/lock/:id", FastUnlockHandler)
 
-		router.GET("/db/:acc/cnt/:id", GetCounterHandler)
-		router.POST("/db/:acc/cnt/:id", AddCounterHandler)
-		router.DELETE("/db/:acc/cnt/:id", DeleteCounterHandler)
+		// router.GET("/db/:acc/seq/:id", GetSequenceHandler)
+		// router.POST("/db/:acc/seq/:id", NextSequenceHandler)
+		// router.DELETE("/db/:acc/seq/:id", DeleteSequenceHandler)
 
-		router.GET("/db/:acc/kv/:id", GetKVHandler)
-		router.POST("/db/:acc/kv/:id", SetKVHandler)
-		router.DELETE("/db/:acc/kv/:id", DeleteKVHandler)
+		// router.GET("/db/:acc/cnt/:id", GetCounterHandler)
+		// router.POST("/db/:acc/cnt/:id", AddCounterHandler)
+		// router.DELETE("/db/:acc/cnt/:id", DeleteCounterHandler)
 
-		router.POST("/db/:acc/fifo/:id", EnqueueHandler)
-		router.DELETE("/db/:acc/fifo/:id", DequeueAndAckHandler)
+		// router.GET("/db/:acc/kv/:id", GetKVHandler)
+		// router.POST("/db/:acc/kv/:id", SetKVHandler)
+		// router.DELETE("/db/:acc/kv/:id", DeleteKVHandler)
+
+		// router.POST("/db/:acc/fifo/:id", EnqueueHandler)
+		// router.DELETE("/db/:acc/fifo/:id", DequeueAndAckHandler)
 
 		router.NotFound = func(ctx *fasthttp.RequestCtx) {
 			ctx.SetStatusCode(404)

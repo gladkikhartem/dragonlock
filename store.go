@@ -128,10 +128,6 @@ func (p *Store) singletonUpdate(key []byte, f UpdateFunc) error {
 	return f()
 }
 
-func (p *Store) DB() Getter {
-	return p.db
-}
-
 // Update the data for the key using UpdateFunc.
 // UpdateFunc will simply call Store
 func (p *Store) Update(key []byte, f UpdateFunc) error {

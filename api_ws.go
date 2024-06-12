@@ -8,13 +8,16 @@ import (
 // - Service discovery (list of active WS connections),
 // - State management (all WS connections receive info about version increments)
 // - Leader election (all nodes are sorted consistently, which means 1st node can be chosen a leader)
+// - Queue management (receiving message from queues)
 //
-// This works pretty good for service discovery and dynamic state management
+// This works pretty good for service discovery and dynamic state management and
+// background workers doing their work
 //
 // Slaves will push data to queue, that is processed by one node and than this node
 // can update the state, which in turn sent out immediately to all other nodes.
 //
-// This can provide a framework for distributed systems management
+// This can provide a framework for distributed systems management and serve as generic
+// queue mechanism
 
 func GetStateHandler(ctx *fasthttp.RequestCtx) {
 	// open websocket, receive freshest value, get notified about newest values

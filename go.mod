@@ -5,6 +5,7 @@ go 1.21
 require (
 	github.com/buaazp/fasthttprouter v0.1.1
 	github.com/cockroachdb/pebble v1.1.0
+	github.com/goccy/go-json v0.9.11
 	github.com/lib/pq v1.10.9
 	github.com/mattn/go-sqlite3 v1.14.22
 	github.com/tinylib/msgp v1.1.9
