@@ -38,3 +38,4 @@ A swiss-knife set of useful high-performance APIs running on a single server int
     * Scalability in case you need > 50k req/second
 * Improve APIs with metrics, monitoring & admin options.
 
+* RWMutex

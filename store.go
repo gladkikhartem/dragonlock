@@ -35,9 +35,14 @@ type Store struct {
 	kmu     []*kmutex
 	mu      sync.Mutex
 	done    chan struct{}
+	b       *pebble.Batch
 	count   int  // number of requests processed from last WAL write
 	stopped bool // graceful shudown
 	pending int  // number of requests inflight (track for graceful shutdown)
+}
+type SchedQueueMsg struct {
+	QID  string `json:"qid,omitempty"` // id of the queue
+	Data string `json:"raw,omitempty"` // message data
 }
 
 // Having multiple mutexes reduces on sync.Cond and sync.Mutex
@@ -50,6 +55,7 @@ func NewStore(db *pebble.DB) *Store {
 	s := &Store{
 		db:   db,
 		done: make(chan struct{}),
+		b:    db.NewBatch(),
 	}
 	for i := 0; i < mCount; i++ {
 		s.kmu = append(s.kmu, newLocker())
@@ -69,11 +75,17 @@ func (p *Store) Flush() int {
 	p.count = 0
 	done := p.done // all previous updates are waiting on this chan
 	pending := p.pending
+	b := p.b
+	p.b = p.db.NewBatch()
 	p.done = make(chan struct{}) // create new chan for future updates to wait on
 	p.mu.Unlock()
 
 	if count > 0 {
-		err := p.db.LogData([]byte("f"), pebble.Sync)
+		err := b.LogData([]byte("f"), pebble.Sync)
+		if err != nil {
+			panic(err)
+		}
+		err = b.Commit(pebble.Sync)
 		if err != nil {
 			panic(err)
 		}
@@ -83,6 +95,9 @@ func (p *Store) Flush() int {
 }
 
 // FlushLoop calls Flush constantly in a loop
+// TODO: check how sharding storages improves performance
+// Maybe it'll be easier to run & backup 100 of dbs (or db ranges) clumped up
+// together, than a 1 big database
 func (p *Store) FlushLoop(ctx context.Context) error {
 	for {
 		select {
@@ -106,15 +121,15 @@ func (p *Store) FlushLoop(ctx context.Context) error {
 	}
 }
 
-// UpdateFunc should update only data relevant to the key.
-// It can create multiple records in DB, but they should
-// never overlap with data of another keys
-type UpdateFunc func() error
+type DBWrite struct {
+	Key   []byte
+	Value []byte
+}
 
 // UpdateFunc should update only data relevant to the key.
 // It can create multiple records in DB, but they should
 // never overlap with data of another keys
-type GetFunc func(db *pebble.DB) error
+type UpdateFunc func() error
 
 // singletonUpdate makes sure all updates are done one after the other.
 func (p *Store) singletonUpdate(key []byte, f UpdateFunc) error {

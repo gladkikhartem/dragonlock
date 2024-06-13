@@ -4,6 +4,7 @@ import (
 	"clouddragon/cd"
 	"fmt"
 	"log"
+	"sync"
 	"time"
 
 	"github.com/cockroachdb/pebble"
@@ -19,7 +20,7 @@ type AtomicOp struct {
 }
 
 type QueueMsg struct {
-	QID  string `json:"qid,omitempty"` // id of the queue
+	Seq  int64  `json:"seq,omitempty"` // TODO: exclude from DB
 	Data string `json:"raw,omitempty"` // message data
 }
 
@@ -28,17 +29,12 @@ type EnqueueOp struct {
 	Vals  []QueueMsg
 }
 
-type DequeueOp struct {
-	Queue string
-	Count int
-	Ack   []int64 //IDs of previous messages to acknowledge
-}
-
 type KV struct {
 	Key   string
 	Value string
 }
 
+// TODO: RWLOCKS - useful for config management
 type LockOp struct {
 	Wait int
 	Dur  int
@@ -54,6 +50,7 @@ type Request struct {
 	// if lock/unlock was requested - all operations are performed
 	// only after lock/unlock were successful
 
+	RLock    bool // if this is a read lock or write lock
 	LockWait int
 	LockDur  int
 	LockID   string
@@ -84,6 +81,11 @@ type Response struct {
 	Dequeue []QueueMsg  `json:"dq,omitempty"`
 	KVGet   []KV        `json:"kv,omitempty"`
 	Atomic  []AtomicRes `json:"atm,omitempty"`
+}
+
+type AckOp struct {
+	Queue  string
+	Offset int64
 }
 
 func handleIdempotency(acc string, b *pebble.Batch, id string) error {
@@ -131,7 +133,7 @@ func handleAtomic(acc string, b *pebble.Batch, op AtomicOp, res *Response) error
 	return fmt.Errorf("empty atomic request")
 }
 
-//	<- dequeue |front|-----------------|back|  <- enqueue
+//	<- take |front|-----------------|back|  <- push
 //
 // simple FIFO queue impelementation. All messages are processed sequentially.
 // Performance can be improved simply by hashing with some ID.
@@ -161,7 +163,7 @@ func handleEnqueue(acc string, b *pebble.Batch, msg EnqueueOp) error {
 	}
 	for _, v := range msg.Vals {
 		q.Back += 1
-		err = b.Set(compID(cd.QueueMsgPrefix, acc, fmt.Sprint(q.Back)), []byte(v.Data), pebble.NoSync)
+		err = b.Set(compIDQueue(cd.QueueMsgPrefix, acc, msg.Queue, q.Back), []byte(v.Data), pebble.NoSync)
 		if err != nil {
 			return err
 		}
@@ -209,6 +211,10 @@ func handleKVGet(acc string, b *pebble.Batch, key string, res *Response) error {
 		Value: v.Data,
 	})
 	return nil
+}
+
+type DBState struct {
+	Waiting map[string]*sync.Cond
 }
 
 func handle(acc string, req Request) (Response, error) {
@@ -303,6 +309,165 @@ func handle(acc string, req Request) (Response, error) {
 		}
 	}
 	return res, nil
+}
+
+// What if we need high throughput? 10-100k/sec?
+// It's your job to shard the workers - create 100 queues & create 100 workers
+// You can leverage locks to achieve that
+// (TODO: add RWLock for config management)
+// (RWLock + Read before each processing cycle)
+// (Lock + update when number of nodes change)
+
+// Lock config - update participant list
+// RWLock config - check participant list, start processing queues
+// RWUnlock, RWLock - check participant list, start processing queues...
+// Participant-local storage!!!
+// Participant change requires Lock()
+// Can solve a loooot of distribution problems - for example range allocation
+// for load-balancer & etc.
+
+// Make queue dead simple. Make RWLock drive the distribution logic
+
+type DQResponse struct {
+	Dequeue []QueueMsg `json:"dq,omitempty"`
+	Lock    int64
+}
+
+type DQRequest struct {
+	Queue    string
+	LockWait int   // wait for queue lock
+	LockDur  int   // how long we should keep the lock
+	Unlock   int64 // if both lockid & unlockid = extend the lock
+
+	AckTill    int64
+	DequeueMax int64
+}
+
+func handleDequeue(acc string, req DQRequest) (DQResponse, error) {
+	var res DQResponse
+	b := store.db.NewBatch()
+	if req.LockDur != 0 && req.Unlock != 0 { // extend lock
+		ok := memExtendLock(acc, req.Queue, req.Unlock, req.LockDur)
+		if !ok {
+			return res, fmt.Errorf("unable to extend lock")
+		}
+	} else if req.Unlock != 0 { // unlock, but we should unlock only after successful write, so extend for now
+		ok := memExtendLock(acc, req.Queue, req.Unlock, 30)
+		if !ok {
+			return res, fmt.Errorf("unable to extend lock")
+		}
+		err := b.Delete(compID(cd.LocksPrefix, acc, req.Queue), pebble.NoSync)
+		if err != nil {
+			return res, fmt.Errorf(err.Error())
+		}
+	} else if req.LockDur != 0 { // lock
+		newHandle, err := memLock(acc, req.Queue, req.LockDur, req.LockWait)
+		if err != nil {
+			return res, fmt.Errorf(err.Error())
+		}
+		res.Lock = newHandle
+		c := cd.Lock{
+			Handle: newHandle,
+			Till:   time.Now().Add(time.Second * time.Duration(req.LockDur)).Unix(),
+		}
+		d, err := c.MarshalMsg(nil)
+		if err != nil {
+			return res, fmt.Errorf(err.Error())
+		}
+		err = b.Set(compID(cd.LocksPrefix, acc, req.Queue), d, pebble.NoSync)
+		if err != nil {
+			return res, fmt.Errorf(err.Error())
+		}
+	} else {
+		return res, fmt.Errorf("can't access FIFO queue with lock")
+	}
+
+	ukey := []byte(acc)
+	// all updates for single key are performed sequentially, but flushed to
+	// disk together. See store.Update for more info
+	start := int64(0)
+	toFetch := int64(0)
+
+	err := store.Update(ukey, func() error {
+		var q cd.QueueMeta
+		qid := compID(cd.QueueMetaPrefix, acc, req.Queue)
+		d, closer, err := b.Get(qid)
+		if err != nil {
+			return err
+		}
+		defer closer.Close()
+		_, err = q.UnmarshalMsg(d)
+		if err != nil {
+			return err
+		}
+		if req.AckTill != 0 {
+			q.Front = req.AckTill + 1 // ack previous fetch
+		}
+
+		start = q.Front
+		toFetch = q.Back - q.Front + 1
+		if q.Front-q.Back == 1 {
+			return pebble.ErrNotFound
+		}
+		if toFetch > req.DequeueMax {
+			toFetch = req.DequeueMax
+		}
+		if req.AckTill != 0 { //  avoid noop writing
+			d, err = q.MarshalMsg(nil)
+			if err != nil {
+				return err
+			}
+			err = b.Set(qid, d, pebble.NoSync)
+			if err != nil {
+				return err
+			}
+		}
+		return b.Commit(pebble.NoSync)
+	})
+	if err != nil {
+		if req.LockDur != 0 { // locked, but request failed - unlock
+			err := memUnlock(acc, req.Queue, res.Lock)
+			if err != nil {
+				log.Print("failed to unlock after lock + failed write")
+			}
+		}
+		return res, fmt.Errorf("err updating: " + err.Error())
+	}
+
+	for i := start; i < start+toFetch; i++ {
+		d, closer, err := store.db.Get(compIDQueue(cd.QueueMsgPrefix, acc, req.Queue, i))
+		if err != nil {
+			return res, err
+		}
+		dd := make([]byte, len(d))
+		copy(dd, d)
+		res.Dequeue = append(res.Dequeue, QueueMsg{
+			Seq:  i,
+			Data: string(dd), //TODO: better type management
+		})
+		closer.Close()
+		// fetch message from DB and return it
+		// TODO: don't allow ACK without Unlock, don't allow fetch without Lock
+	}
+
+	if req.Unlock != 0 { // unlock
+		err = memUnlock(acc, req.Queue, res.Lock)
+		if err != nil {
+			log.Print("failed to unlock after successful write")
+		}
+	}
+
+	return res, nil
+}
+
+func DequeueHandler(ctx *fasthttp.RequestCtx) {
+
+}
+
+type DequeueOp struct {
+	LastAck int64 // id of last message to ack
+	Queues  string
+	Max     int //
 }
 
 func RequestHandler(ctx *fasthttp.RequestCtx) {
