@@ -49,8 +49,6 @@ type Request struct {
 	// lock can be requested separately or together with operations
 	// if lock/unlock was requested - all operations are performed
 	// only after lock/unlock were successful
-
-	RLock    bool // if this is a read lock or write lock
 	LockWait int
 	LockDur  int
 	LockID   string
@@ -312,19 +310,8 @@ func handle(acc string, req Request) (Response, error) {
 }
 
 // What if we need high throughput? 10-100k/sec?
-// It's your job to shard the workers - create 100 queues & create 100 workers
-// You can leverage locks to achieve that
-// (TODO: add RWLock for config management)
-// (RWLock + Read before each processing cycle)
-// (Lock + update when number of nodes change)
-
-// Lock config - update participant list
-// RWLock config - check participant list, start processing queues
-// RWUnlock, RWLock - check participant list, start processing queues...
-// Participant-local storage!!!
-// Participant change requires Lock()
-// Can solve a loooot of distribution problems - for example range allocation
-// for load-balancer & etc.
+// Use lock + notifier to manage state across multiple instances &
+// do maglev balancing
 
 // Make queue dead simple. Make RWLock drive the distribution logic
 
@@ -383,8 +370,7 @@ func handleDequeue(acc string, req DQRequest) (DQResponse, error) {
 	}
 
 	ukey := []byte(acc)
-	// all updates for single key are performed sequentially, but flushed to
-	// disk together. See store.Update for more info
+
 	start := int64(0)
 	toFetch := int64(0)
 
@@ -446,8 +432,6 @@ func handleDequeue(acc string, req DQRequest) (DQResponse, error) {
 			Data: string(dd), //TODO: better type management
 		})
 		closer.Close()
-		// fetch message from DB and return it
-		// TODO: don't allow ACK without Unlock, don't allow fetch without Lock
 	}
 
 	if req.Unlock != 0 { // unlock
@@ -460,8 +444,44 @@ func handleDequeue(acc string, req DQRequest) (DQResponse, error) {
 	return res, nil
 }
 
-func DequeueHandler(ctx *fasthttp.RequestCtx) {
+type HBResponse struct {
+	Data string
+}
 
+type HBRequest struct {
+	ID   string // id of service
+	Data json.RawMessage
+}
+
+type HBNode struct {
+	ID         string
+	Data       json.RawMessage
+	LastHealth int64
+}
+
+type HBStatus struct {
+	Nodes map[string]*HBNode
+	Now   int64
+}
+
+func HBHandler(acc string, id string, data json.RawMessage) error {
+	ukey := []byte(acc)
+	err := store.Update(ukey, func() error {
+		// var q HBStatus
+		// // update node data & VERSION
+		// return b.Commit(pebble.NoSync)
+		return nil
+	})
+	// Long-Polling waiting for change here  (reuse lock logic + Broadcast)
+
+	// If request is initial (version mismatch) - return immediately
+	// If request is repeated - just block on mutex and return new value when received
+	//
+	// If config changed - instances can react and update their status
+	// when status is updated - config can change
+	//
+	// Leader election - using locks + extending locks
+	return err
 }
 
 type DequeueOp struct {
