@@ -17,14 +17,16 @@ A swiss-knife synchronisation server that will make your life easier. Featuring:
     * Up to 100k req/sec for a single counter on an average server
 
 Spend $5 on single server and save months of your time on not worrying about:
-- concurrent actions executed at the same time
+- database transactions & conflicts
+- concurrent background actions executed at the same time
 - on-the-fly config updates
-- redis maintenance & scaling
+- redis maintenance & scaling just to store few values
 
 ## Use-cases
 * Ensure exclusive code execution with minimal latency overhead.
-* Share configuration among multiple servers that is updated instantly
 * Generate short, sequential IDs
-* Cache
+* Share configuration among multiple servers that is updated instantly
+* Cache values in centralized storage
+
 
 ## API / Examples : TBD
