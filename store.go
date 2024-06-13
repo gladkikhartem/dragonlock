@@ -33,6 +33,7 @@ import (
 type Store struct {
 	db      *pebble.DB
 	kmu     []*kmutex
+	nf      []*notifier
 	mu      sync.Mutex
 	done    chan struct{}
 	b       *pebble.Batch
@@ -59,6 +60,9 @@ func NewStore(db *pebble.DB) *Store {
 	}
 	for i := 0; i < mCount; i++ {
 		s.kmu = append(s.kmu, newLocker())
+	}
+	for i := 0; i < mCount; i++ {
+		s.nf = append(s.nf, newNotifier())
 	}
 	return s
 }
@@ -126,13 +130,13 @@ type DBWrite struct {
 	Value []byte
 }
 
-// UpdateFunc should update only data relevant to the key.
+// SingletonFunc should update only data relevant to the key.
 // It can create multiple records in DB, but they should
 // never overlap with data of another keys
-type UpdateFunc func() error
+type SingletonFunc func() error
 
 // singletonUpdate makes sure all updates are done one after the other.
-func (p *Store) singletonUpdate(key []byte, f UpdateFunc) error {
+func (p *Store) singletonUpdate(key []byte, f SingletonFunc) error {
 	if len(key) > 0 {
 		h := fnv.New64a()
 		h.Write(key)
@@ -143,9 +147,17 @@ func (p *Store) singletonUpdate(key []byte, f UpdateFunc) error {
 	return f()
 }
 
-// Update the data for the key using UpdateFunc.
-// UpdateFunc will simply call Store
-func (p *Store) Update(key []byte, f UpdateFunc) error {
+// singletonUpdate makes sure all updates are done one after the other.
+func (p *Store) notifier(key string) *notifier {
+	h := fnv.New64a()
+	h.Write([]byte(key))
+	kid := h.Sum64()
+	return p.nf[kid%mCount]
+}
+
+// Update the data for the key using SingletonFunc.
+// SingletonFunc will simply call Store
+func (p *Store) Singleton(key []byte, f SingletonFunc) error {
 	p.mu.Lock()
 	if p.stopped {
 		p.mu.Unlock()

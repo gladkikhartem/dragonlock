@@ -6,6 +6,7 @@ require (
 	github.com/buaazp/fasthttprouter v0.1.1
 	github.com/cockroachdb/pebble v1.1.0
 	github.com/goccy/go-json v0.9.11
+	github.com/lafikl/hlc v0.0.0-20170703083803-0610e7fd8181
 	github.com/lib/pq v1.10.9
 	github.com/mattn/go-sqlite3 v1.14.22
 	github.com/tinylib/msgp v1.1.9

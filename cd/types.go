@@ -4,6 +4,7 @@ import "errors"
 
 const (
 	AtomicPrefix      = 1
+	VerSequencePrefix = 2
 	LocksPrefix       = 3
 	KVPrefix          = 4
 	FIFOPrefix        = 5
@@ -22,11 +23,11 @@ type Lock struct {
 
 //go:generate msgp
 type KV struct {
-	Data string `json:"d" msg:"d"`
+	Data    []byte
+	Version int64
 }
 
 type QueueMeta struct {
-	Front int64 // Front points to the first message in the queue.
-	Back  int64 // Back points to the last message in the queue
-	// If queue is empty: Front = Back + 1
+	Total   int64 // total messages in a queue
+	Counter int64 // id of the last message
 }
