@@ -29,4 +29,73 @@ Spend $5 on single server and save months of your time on not worrying about:
 * Cache values in centralized storage
 
 
-## API / Examples : TBD
+## API / Examples:
+Lock key "ABC" for 30 seconds. Wait for 30 seconds to acquire the lock
+```
+POST /db/dev
+{
+    "LockID": "ABC",
+    "LockDur": 30,
+    "LockWait": 30
+}
+resp 200:
+{
+    "Lock":  1235553,
+    "Till": 172343434, // Unix
+}
+```
+
+Set some values & increment counter
+```
+POST /db/dev
+{
+    "KVSet": ["Key": "ABC", "Value": "123"],
+    "KVGet":  ["Key": "CDE"],
+    "Atomic": ["Key": "Total_Count", "Add": 1]
+}
+resp 200:
+{
+    "Atomic": ["Key": "Total_Count", "Value": 333]
+    "KV": ["Key": "CDE", "Value": { "my_json": "object" }]
+}
+```
+
+Unlock id
+```
+POST /db/dev
+{
+    "UnlockID": "ABC",
+    "Unlock": "1235553",
+}
+resp 200:
+{}
+```
+
+
+Idempotent update (without lock)
+```
+POST /db/dev
+{
+    "IdempotencyIDs": ["ABC_create"],
+    "KVSet": ["Key": "ABC", "Value": "123"],
+    "Atomic": ["Key": "Total_Count", "Add": 1]
+}
+resp 200:
+{
+    "Atomic": ["Key": "Total_Count", "Value": 333]
+}
+```
+
+Try duplicate request
+```
+POST /db/dev
+{
+    "IdempotencyIDs": ["ABC_create"],
+    "KVSet": ["Key": "ABC", "Value": "123"],
+    "Atomic": ["Key": "Total_Count", "Add": 1]
+}
+resp 409:
+{
+    "Code": "duplicate_request"
+}
+```
