@@ -3,14 +3,11 @@ package cd
 import "errors"
 
 const (
-	AtomicPrefix      = 1
-	VerSequencePrefix = 2
-	LocksPrefix       = 3
-	KVPrefix          = 4
-	FIFOPrefix        = 5
-	IdempotencyPrefix = 6
-	QueueMetaPrefix   = 7
-	QueueMsgPrefix    = 8
+	AtomicPrefix      = 1 // storage for atomic counters
+	VerSequencePrefix = 3 // store increasing version numbers for KV
+	LocksPrefix       = 4 // store lock durations to restore in case of reboot
+	IdempotencyPrefix = 5 // store idempotency keys to deduplicate requests
+	KVPrefix          = 6 // store kv values
 )
 
 var ErrNotLocked = errors.New("not_locked")

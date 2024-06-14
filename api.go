@@ -22,7 +22,7 @@ type KV struct {
 	Key     string
 	Value   json.RawMessage
 	Delete  bool
-	Version int64 `json:"-"` // Only for internal use
+	Version int64
 }
 
 type EnqueueOp struct {
@@ -120,7 +120,8 @@ func handleKVSet(acc string, b *pebble.Batch, v *KV) error {
 		return b.Delete(compID(cd.KVPrefix, acc, v.Key), pebble.NoSync)
 	}
 	dv := cd.KV{
-		Data: v.Value,
+		Data:    v.Value,
+		Version: v.Version, // TODO: rename to sequence
 	}
 	d, err := dv.MarshalMsg(nil)
 	if err != nil {
@@ -136,7 +137,8 @@ func handleKVGet(acc string, b *pebble.Batch, key string, res *Response) error {
 			return err
 		}
 		res.KVGet = append(res.KVGet, KV{
-			Key: key,
+			Key:     key,
+			Version: 0, // 0 version
 		})
 	}
 	defer closer.Close()
@@ -146,52 +148,54 @@ func handleKVGet(acc string, b *pebble.Batch, key string, res *Response) error {
 		return err
 	}
 	res.KVGet = append(res.KVGet, KV{
-		Key:   key,
-		Value: v.Data,
+		Key:     key,
+		Value:   v.Data,
+		Version: v.Version,
 	})
 	return nil
 }
 
 func handle(acc string, req Request) (Response, error) {
 	var res Response
-	b := store.db.NewBatch()
-	if req.UnlockID == req.LockID { // extend lock
-		ok := memExtendLock(acc, req.LockID, req.Unlock, req.LockDur)
-		if !ok {
-			return res, fmt.Errorf("unable to extend lock")
-		}
-	} else {
-		if req.UnlockID != "" { // unlock, but we should unlock only after successful write, so extend for now
-			ok := memExtendLock(acc, req.UnlockID, req.Unlock, 30)
+	b := store.db.NewIndexedBatch() // TODO: maybe normal batch will work too
+	if req.UnlockID != "" || req.LockID != "" {
+		if req.UnlockID == req.LockID { // extend lock
+			ok := memExtendLock(acc, req.LockID, req.Unlock, req.LockDur)
 			if !ok {
 				return res, fmt.Errorf("unable to extend lock")
 			}
-			err := b.Delete(compID(cd.LocksPrefix, acc, req.UnlockID), pebble.NoSync)
-			if err != nil {
-				return res, fmt.Errorf(err.Error())
+		} else {
+			if req.UnlockID != "" { // unlock, but we should unlock only after successful write, so extend for now
+				ok := memExtendLock(acc, req.UnlockID, req.Unlock, 30)
+				if !ok {
+					return res, fmt.Errorf("unable to extend lock")
+				}
+				err := b.Delete(compID(cd.LocksPrefix, acc, req.UnlockID), pebble.NoSync)
+				if err != nil {
+					return res, fmt.Errorf(err.Error())
+				}
 			}
-		}
-		if req.LockID != "" { // lock
-			newHandle, err := memLock(acc, req.LockID, req.LockDur, req.LockWait)
-			if err != nil {
-				return res, fmt.Errorf(err.Error())
-			}
-			res.Lock = newHandle
-			c := cd.Lock{
-				Handle: newHandle,
-				Till:   time.Now().Add(time.Second * time.Duration(req.LockDur)).Unix(),
-			}
-			d, err := c.MarshalMsg(nil)
-			if err != nil {
-				return res, fmt.Errorf(err.Error())
-			}
-			err = b.Set(compID(cd.LocksPrefix, acc, req.LockID), d, pebble.NoSync)
-			if err != nil {
-				return res, fmt.Errorf(err.Error())
+			if req.LockID != "" { // lock
+				newHandle, err := memLock(acc, req.LockID, req.LockDur, req.LockWait)
+				if err != nil {
+					return res, fmt.Errorf(err.Error())
+				}
+				res.Lock = newHandle
+				c := cd.Lock{
+					Handle: newHandle,
+					Till:   time.Now().Add(time.Second * time.Duration(req.LockDur)).Unix(),
+				}
+				d, err := c.MarshalMsg(nil)
+				if err != nil {
+					return res, fmt.Errorf(err.Error())
+				}
+				err = b.Set(compID(cd.LocksPrefix, acc, req.LockID), d, pebble.NoSync)
+				if err != nil {
+					return res, fmt.Errorf(err.Error())
+				}
 			}
 		}
 	}
-
 	ukey := []byte(acc)
 	// all updates for single key are performed sequentially, but flushed to
 	// disk together. See store.Update for more info
@@ -214,8 +218,9 @@ func handle(acc string, req Request) (Response, error) {
 				return err
 			}
 		}
-		for _, val := range req.KVSet {
-			ver, err := GetInt64(compID1(cd.VerSequencePrefix, acc), b)
+		if len(req.KVSet) > 0 {
+			seqID := compID1(cd.VerSequencePrefix, acc)
+			ver, err := GetInt64(seqID, b)
 			if err != nil {
 				return err
 			}
@@ -223,10 +228,18 @@ func handle(acc string, req Request) (Response, error) {
 			if ver != nil {
 				v = *ver
 			}
-			val.Version = v
-			err = handleKVSet(acc, b, val)
+			log.Print(req.KVSet)
+			for _, val := range req.KVSet {
+				val.Version = v
+				v++
+				err = handleKVSet(acc, b, val)
+				if err != nil {
+					return err
+				}
+			}
+			err = SetInt64(seqID, v, b)
 			if err != nil {
-				return err
+				panic(err)
 			}
 		}
 		return b.Commit(pebble.NoSync)
@@ -246,17 +259,9 @@ func handle(acc string, req Request) (Response, error) {
 			log.Print("failed to unlock after successful write")
 		}
 	}
-	// notify all listeners (if any) for kv change
 	for _, val := range req.KVSet {
-		store.notifier(acc).SetVersion(val.Key, val.Version)
+		store.notifier(acc).NotifyVersion(val.Key, val.Version)
 	}
-
-	// notify all listeners (if any) for atomic counter change
-	for _, val := range res.Atomic {
-		// TODO: different key space for Counters
-		store.notifier(acc).SetVersion(val.Key, val.New)
-	}
-
 	return res, nil
 }
 
@@ -275,6 +280,7 @@ func RequestHandler(ctx *fasthttp.RequestCtx) {
 	res, err := handle(acc, req)
 	if err != nil {
 		ctx.Error(err.Error(), 400)
+		return
 	}
 
 	d, err := json.Marshal(res)
@@ -304,10 +310,45 @@ func RequestHandler(ctx *fasthttp.RequestCtx) {
 // knows which version they are using
 //
 // Cool scheme, but it will be good if that all can be make easier for client implementation
-func watcher(acc string, key string, ver int64) (int64, error) {
+
+type WatchRequest struct {
+	ID      string
+	Version int64
+}
+
+func WatchHandler(ctx *fasthttp.RequestCtx) {
+	acc, err := getAcc(ctx)
+	if err != nil {
+		ctx.Error(err.Error(), 400)
+		return
+	}
+	var req WatchRequest
+	err = json.Unmarshal(ctx.Request.Body(), &req)
+	if err != nil {
+		ctx.Error(err.Error(), 400)
+		return
+	}
+	if req.ID == "" {
+		ctx.Error("id to watch is empty", 400)
+		return
+	}
+	kv, err := watcher(acc, req.ID, req.Version)
+	if err != nil {
+		ctx.Error(err.Error(), 400)
+		return
+	}
+	d, err := json.Marshal(kv)
+	if err != nil {
+		ctx.Error(err.Error(), 400)
+		return
+	}
+	ctx.Response.SetBody(d)
+}
+
+func watcher(acc string, key string, ver int64) (KV, error) {
 	n := store.notifier(acc)
-	attached := false
-	_ = store.Singleton([]byte(acc), func() error {
+	var kv *KV
+	err := store.Singleton([]byte(acc), func() error {
 		d, closer, err := store.db.Get(compID(cd.KVPrefix, acc, key))
 		if err != nil && err != pebble.ErrNotFound {
 			return err
@@ -320,16 +361,42 @@ func watcher(acc string, key string, ver int64) (int64, error) {
 				return err
 			}
 			if v.Version != ver {
+				kv = &KV{
+					Key:     key,
+					Value:   v.Data,
+					Version: v.Version,
+				}
 				return nil
 			}
 		}
 		n.Attach(key, ver)
-		attached = true
 		return nil
 	})
-	if attached {
-		_ = n.Listen(acc, ver, 30)
+	if err != nil {
+		return KV{}, err
 	}
-	// TODO: return value if version different
-	return 0, nil
+	if kv != nil { // key changed in DB already
+		return *kv, nil
+	}
+
+	retV := n.Listen(acc, ver, 30)
+	if retV == -1 { // timeout
+		return KV{}, fmt.Errorf("no change")
+	}
+	d, closer, err := store.db.Get(compID(cd.KVPrefix, acc, key))
+	if err != nil {
+		return KV{}, err
+	}
+	defer closer.Close()
+
+	var v cd.KV
+	_, err = v.UnmarshalMsg(d)
+	if err != nil {
+		return KV{}, err
+	}
+	return KV{
+		Key:     key,
+		Value:   v.Data,
+		Version: v.Version,
+	}, nil
 }

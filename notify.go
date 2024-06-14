@@ -21,7 +21,7 @@ type notifier struct {
 	s map[string]*NotifierRecord
 }
 
-func (km *notifier) SetVersion(key string, ver int64) {
+func (km *notifier) NotifyVersion(key string, ver int64) {
 	km.l.Lock()
 	defer km.l.Unlock()
 	v, ok := km.s[key]
@@ -66,7 +66,7 @@ func (km *notifier) Listen(key string, ver int64, dur int) int64 {
 			if v.Listeners == 0 {
 				delete(km.s, key) // no one listening - free up RAM
 			}
-			return v.Version
+			return -1
 		}
 		km.c.Wait()
 	}
