@@ -40,7 +40,7 @@ Stability testing, docs, admin endpoints & UI are required.
 ## API Design:
 API is divided into "accounts" (aka partitions), where 1 account can't share any data with another account. 
 
-If you never expect to have more than 50k/req second for all your use-cases - you can only 1 account and that's it. If you may need more performance in future - you can create multiple accounts (aka tenants). This will allow you to put Load Balancer in front of this service and distribute load across multiple machines, based on account in http url path.
+If you never expect to have more than 50k/req second for this API - you can have only 1 account. If you may need more performance in future - you can create multiple accounts (aka tenants). Load Balancer in front of this API can distribute the load across multiple machines based on accountid in http url path.
 
 All actions are executed atomically. If you issue a Lock, update 100 keys & increment 50 counters in a single request - all those actions will either succeed or fail together.
 
