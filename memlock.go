@@ -82,7 +82,7 @@ func memUnlock(acc, id string, handle int64) error {
 	return nil
 }
 
-func memExtendLock(acc, id string, handle int64, dur int) bool {
+func memExtendLock(acc, id string, handle int64, dur int) error {
 	cid := acc + string([]byte{0}) + id
 	return chooseLock(cid).extendLock(cid, handle, time.Now().Unix()+int64(dur))
 }
@@ -125,19 +125,19 @@ func (km *fastLockMutex) locked(key string) (ok bool) {
 	return ok
 }
 
-func (km *fastLockMutex) extendLock(key string, handle int64, till int64) bool {
+func (km *fastLockMutex) extendLock(key string, handle int64, till int64) error {
 	km.l.Lock()
 	defer km.l.Unlock()
 	fl, ok := km.m[key]
 	if !ok {
-		return false
+		return fmt.Errorf("lock not found")
 	}
-	if fl.handle != handle {
-		return false
+	if handle != 0 && fl.handle != handle {
+		return fmt.Errorf("handle mismatch")
 	}
 	fl.till = till
 	km.m[key] = fl
-	return true
+	return nil
 }
 
 func (km *fastLockMutex) Unlock(key string, handle int64) (chan bool, error) {
@@ -178,12 +178,6 @@ func (km *fastLockMutex) UnlockTimeout(key string, till int64, ch chan bool) (ch
 var handleCounter = int64(1)
 
 func (km *fastLockMutex) Lock(key string, dur, wait int, oldHandle int64) (int64, bool) {
-	km.l.Lock()
-	defer km.l.Unlock()
-	return km.lock(key, dur, wait, oldHandle)
-}
-
-func (km *fastLockMutex) lock(key string, dur, wait int, oldHandle int64) (int64, bool) {
 	start := time.Now().Unix()
 	handle := atomic.AddInt64(&handleCounter, 1)
 	if oldHandle != 0 {
@@ -221,11 +215,11 @@ func (km *fastLockMutex) lock(key string, dur, wait int, oldHandle int64) (int64
 				if retCh != nil {
 					close(retCh)
 				}
-				break
+				return
 			case <-ch:
 				// closed due to success
 				t.Stop()
-				break
+				return
 			}
 		}
 	}()

@@ -127,6 +127,7 @@ func handleKVSet(acc string, b *pebble.Batch, v *KV) error {
 	if err != nil {
 		return err
 	}
+	// log.Printf("save %v size: %v", v.Key, len(v.Value))
 	return b.Set(compID(cd.KVPrefix, acc, v.Key), d, pebble.NoSync)
 }
 
@@ -160,17 +161,17 @@ func handle(acc string, req Request) (Response, error) {
 	b := store.db.NewIndexedBatch() // TODO: maybe normal batch will work too
 	if req.UnlockID != "" || req.LockID != "" {
 		if req.UnlockID == req.LockID { // extend lock
-			ok := memExtendLock(acc, req.LockID, req.Unlock, req.LockDur)
-			if !ok {
-				return res, fmt.Errorf("unable to extend lock")
+			err := memExtendLock(acc, req.LockID, req.Unlock, req.LockDur)
+			if err != nil {
+				return res, err
 			}
 		} else {
 			if req.UnlockID != "" { // unlock, but we should unlock only after successful write, so extend for now
-				ok := memExtendLock(acc, req.UnlockID, req.Unlock, 30)
-				if !ok {
-					return res, fmt.Errorf("unable to extend lock")
+				err := memExtendLock(acc, req.UnlockID, req.Unlock, 30)
+				if err != nil {
+					return res, err
 				}
-				err := b.Delete(compID(cd.LocksPrefix, acc, req.UnlockID), pebble.NoSync)
+				err = b.Delete(compID(cd.LocksPrefix, acc, req.UnlockID), pebble.NoSync)
 				if err != nil {
 					return res, fmt.Errorf(err.Error())
 				}
@@ -228,7 +229,6 @@ func handle(acc string, req Request) (Response, error) {
 			if ver != nil {
 				v = *ver
 			}
-			log.Print(req.KVSet)
 			for _, val := range req.KVSet {
 				val.Version = v
 				v++
@@ -290,26 +290,6 @@ func RequestHandler(ctx *fasthttp.RequestCtx) {
 	}
 	ctx.Response.SetBody(d)
 }
-
-// Service boots up, checks the version local with version on server
-// if version differs - he gets update
-// if version doesn't differ - request blocks for specified duration
-// request with version 0 (get latest value) blocks only if value is missing
-
-// If service wants to update config (for example add itself to potential member list)
-// It makes "lock" on the KV it wants to update, reads it, then performs the update
-// then unlocks.
-//
-// If we have 10 nodes and they report their status every second - 10 req/sec
-// is nothing for server to handle
-//
-// Each node can become leader when needed by locking the KV
-// # Leader can react to membership changes and update real config that everyone follows
-//
-// Nodes can in return update their status (last config version ) so that leader
-// knows which version they are using
-//
-// Cool scheme, but it will be good if that all can be make easier for client implementation
 
 type WatchRequest struct {
 	ID      string
@@ -378,8 +358,7 @@ func watcher(acc string, key string, ver int64) (KV, error) {
 	if kv != nil { // key changed in DB already
 		return *kv, nil
 	}
-
-	retV := n.Listen(acc, ver, 30)
+	retV := n.Listen(key, ver, 30)
 	if retV == -1 { // timeout
 		return KV{}, fmt.Errorf("no change")
 	}

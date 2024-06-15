@@ -73,7 +73,6 @@ func Start(ctx context.Context) error {
 		router.POST("/watch/:acc", WatchHandler)
 
 		router.NotFound = func(ctx *fasthttp.RequestCtx) {
-			log.Print("WTF")
 			ctx.SetStatusCode(404)
 		}
 
