@@ -29,11 +29,13 @@ Spend $5 on single server and save months of your time on not worrying about:
 - redis setup & maintenance just to cache a few values
 
 ## Use-cases
-* Ensure exclusive code execution with minimal latency overhead.
-* Generate short, sequential IDs
-* Share configuration among multiple servers that is updated instantly
-* Cache values in centralized storage
+* Ensure exclusive code execution across multiple machines with minimal latency overhead.
+* Generate globaly unique sequential IDs.
+* Share state among 100s of servers that is updated in milliseconds.
 
+## Current status
+This is Work In Progress right now.
+Stability testing, docs, admin endpoints & UI are required.
 
 ## API Design:
 API is divided into "accounts" (aka partitions), where 1 account can't share any data with another account. 
@@ -171,7 +173,6 @@ resp ... - blocked until value is updated again
     "Value": "123"
 }
 ```
-
 
 
 ## Benchmarks
