@@ -14,9 +14,9 @@ A swiss-knife synchronisation server that will make your life easier. Featuring:
     * Up to 100k req/sec on an average server
     * Up to 10k watchers for a single key
 * **Atomic operations**
-    * Counters
-    * Sequences
-    * CompareAndSwap
+    * Counters, Sequences, CompareAndSwap
+    * Idempotency checks included
+    * All updates persisted to disk
     * Up to 50k updates/sec for a single counter
 * **Backups**
     * Automatic backups to S3
