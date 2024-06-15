@@ -241,7 +241,7 @@ func main() {
 	log.Printf("WatchReaction 1 key 100 watchers: %d ms ", took.Milliseconds())
 
 	took = BenchmarkWatchReaction("http://localhost:8081", 1000)
-	log.Printf("WatchReaction 1 key 100 watchers: %d ms ", took.Milliseconds())
+	log.Printf("WatchReaction 1 key 1000 watchers: %d ms ", took.Milliseconds())
 
 	took = BenchmarkWatchReaction("http://localhost:8081", 1000)
 	log.Printf("WatchReaction 1 key 10000 watchers: %d ms ", took.Milliseconds())
@@ -277,11 +277,18 @@ func main() {
 	log.Printf("WatchReaction 1000 keys 5 watchers per key: min %d ms,avg %.1f ms,  max %d ms,  total delay: %d ms ",
 		min, float64(sum)/float64(len(tt)), max, time.Since(start).Milliseconds())
 
+	start = time.Now()
+	parallel = 100
+	perThread = 1
+	BenchmarkLockUnlock("http://localhost:8081", 1, 1, parallel, perThread)
+	log.Printf("LockUnlock for 1 account and 1 key (sequential): %.1fk req/sec ", total/time.Since(start).Seconds()/1000)
+
 	parallel = 1000
 	perThread = 100
 	total = float64(parallel * perThread)
 
 	start = time.Now()
+
 	BenchmarkLockUnlock("http://localhost:8081", 1, 1000, parallel, perThread)
 	log.Printf("LockUnlock for 1 account and 1000 keys: %.1fk req/sec ", total/time.Since(start).Seconds()/1000)
 

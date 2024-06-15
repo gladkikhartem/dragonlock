@@ -104,27 +104,29 @@ resp 409:
 ## Benchmarks
 GOMAXPROCS=4 (2 cores) on AMD Ryzen 5 6600H.  (The rest of the cores is used for running benchmark)
  ```
-2024/06/15 17:00:44 WatchReaction 1 key 1 watcher: 9 ms 
-2024/06/15 17:00:44 WatchReaction 1 key 100 watchers: 9 ms 
-2024/06/15 17:00:44 WatchReaction 1 key 100 watchers: 23 ms 
-2024/06/15 17:00:45 WatchReaction 1 key 10000 watchers: 19 ms 
-2024/06/15 17:00:45 WatchReaction 1000 keys 5 watchers per key: min 9 ms,avg 54.7 ms,  max 81 ms,  total delay: 383 ms 
-2024/06/15 17:00:48 LockUnlock for 1 account and 1000 keys: 35.0k req/sec 
-2024/06/15 17:00:49 LockUnlock for 1000 accounts and 1000 keys: 65.5k req/sec 
-2024/06/15 17:00:53 64byte write KV for 1 account and 1 key: 20.2k req/sec 1.3 MB/sec
-2024/06/15 17:00:56 64byte write KV for 1 account and 1000 keys: 27.9k req/sec 1.8 MB/sec
-2024/06/15 17:00:57 64byte write KV for 1000 accounts and 1 keys: 124.7k req/sec 8.0 MB/sec
-2024/06/15 17:00:58 64byte write KV for 1000 accounts and 1000 keys: 121.5k req/sec 7.8 MB/sec
-2024/06/15 17:01:01 1KB write KV for 1 account and 1 key: 23.3k req/sec 23.9 MB/sec
-2024/06/15 17:01:05 1KB write KV for 1 account and 1000 keys: 26.7k req/sec 27.3 MB/sec
-2024/06/15 17:01:07 1KB write KV for 1000 accounts and 1 keys: 71.4k req/sec 73.1 MB/sec
-2024/06/15 17:01:08 1KB write KV for 1000 accounts and 1000 keys: 54.7k req/sec 56.0 MB/sec
-2024/06/15 17:01:09 10 KB write KV for 1 account and 1 key: 3.7k req/sec 38.2 MB/sec
-2024/06/15 17:01:10 10 KB write KV for 1 account and 1000 keys: 10.0k req/sec 102.0 MB/sec
-2024/06/15 17:01:12 10 KB write KV for 1000 accounts and 1 keys: 7.4k req/sec 75.8 MB/sec
-2024/06/15 17:01:13 10 KB write KV for 1000 accounts and 1000 keys: 6.4k req/sec 65.0 MB/sec
-2024/06/15 17:01:13 atomic for 1 account and 1 key: 34.9k req/sec
-2024/06/15 17:01:14 atomic for 1 account and 1000 keys: 16.8k req/sec
-2024/06/15 17:01:14 atomic for 1000 accounts and 1 keys: 73.5k req/sec
-2024/06/15 17:01:14 atomic for 1000 accounts and 1000 keys: 38.6k req/sec
+2024/06/15 17:07:33 WatchReaction 1 key 1 watcher: 5 ms 
+2024/06/15 17:07:33 WatchReaction 1 key 100 watchers: 8 ms 
+2024/06/15 17:07:34 WatchReaction 1 key 1000 watchers: 16 ms 
+2024/06/15 17:07:34 WatchReaction 1 key 10000 watchers: 11 ms 
+2024/06/15 17:07:34 WatchReaction 1000 keys 5 watchers per key: min 3 ms,avg 29.9 ms,  max 63 ms,  total delay: 370 ms 
+2024/06/15 17:07:35 LockUnlock for 1 account and 1 key (sequential): 0.2k req/sec 
+2024/06/15 17:07:37 LockUnlock for 1 account and 1000 keys: 53.3k req/sec 
+2024/06/15 17:07:38 LockUnlock for 1000 accounts and 1000 keys: 68.1k req/sec 
+2024/06/15 17:07:42 64byte write KV for 1 account and 1 key: 20.8k req/sec 1.3 MB/sec
+2024/06/15 17:07:45 64byte write KV for 1 account and 1000 keys: 28.3k req/sec 1.8 MB/sec
+2024/06/15 17:07:46 64byte write KV for 1000 accounts and 1 keys: 92.5k req/sec 5.9 MB/sec
+2024/06/15 17:07:47 64byte write KV for 1000 accounts and 1000 keys: 107.7k req/sec 6.9 MB/sec
+2024/06/15 17:07:51 1KB write KV for 1 account and 1 key: 22.2k req/sec 22.8 MB/sec
+2024/06/15 17:07:55 1KB write KV for 1 account and 1000 keys: 26.8k req/sec 27.4 MB/sec
+2024/06/15 17:07:56 1KB write KV for 1000 accounts and 1 keys: 63.0k req/sec 64.6 MB/sec
+2024/06/15 17:07:59 1KB write KV for 1000 accounts and 1000 keys: 40.9k req/sec 41.9 MB/sec
+2024/06/15 17:08:00 10 KB write KV for 1 account and 1 key: 2.7k req/sec 27.3 MB/sec
+2024/06/15 17:08:01 10 KB write KV for 1 account and 1000 keys: 10.5k req/sec 107.1 MB/sec
+2024/06/15 17:08:02 10 KB write KV for 1000 accounts and 1 keys: 7.1k req/sec 72.4 MB/sec
+2024/06/15 17:08:04 10 KB write KV for 1000 accounts and 1000 keys: 4.7k req/sec 47.7 MB/sec
+2024/06/15 17:08:05 atomic for 1 account and 1 key: 32.9k req/sec
+2024/06/15 17:08:05 atomic for 1 account and 1000 keys: 18.4k req/sec
+2024/06/15 17:08:05 atomic for 1000 accounts and 1 keys: 88.7k req/sec
+2024/06/15 17:08:06 atomic for 1000 accounts and 1000 keys: 36.2k req/sec
+
 ```
