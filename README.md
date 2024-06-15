@@ -20,7 +20,7 @@ Spend $5 on single server and save months of your time on not worrying about:
 - database transactions & conflicts
 - concurrent background actions executed at the same time
 - on-the-fly config updates
-- redis maintenance & scaling just to store few values
+- redis setup & maintenance just to cache a few values
 
 ## Use-cases
 * Ensure exclusive code execution with minimal latency overhead.
@@ -29,10 +29,17 @@ Spend $5 on single server and save months of your time on not worrying about:
 * Cache values in centralized storage
 
 
-## API / Examples:
+## API Design:
+API is divided into "accounts" (aka partitions), where 1 account can't share any data with another account. 
+
+If you never expect to have more than 50k/req second for all your use-cases - you can only 1 account and that's it. If you may need more performance in future - you can create multiple accounts (aka tenants). This will allow you to put Load Balancer in front of this service and distribute load across multiple machines, based on account in http url path.
+
+All actions are executed atomically. If you issue a Lock, update 100 keys & increment 50 counters in a single request - all those actions will either succeed or fail together.
+
+## Usage Examples:
 Lock key "ABC" for 30 seconds. Wait for 30 seconds to acquire the lock
 ```
-POST /db/dev
+POST /db/my_env
 {
     "LockID": "ABC",
     "LockDur": 30,
@@ -47,7 +54,7 @@ resp 200:
 
 Set some values & increment counter
 ```
-POST /db/dev
+POST /db/my_env
 {
     "KVSet": ["Key": "ABC", "Value": "123"],
     "KVGet":  ["Key": "CDE"],
@@ -62,7 +69,7 @@ resp 200:
 
 Unlock id
 ```
-POST /db/dev
+POST /db/my_env
 {
     "UnlockID": "ABC",
     "Unlock": "1235553",
@@ -74,7 +81,7 @@ resp 200:
 
 Idempotent update (without lock)
 ```
-POST /db/dev
+POST /db/my_env
 {
     "IdempotencyIDs": ["ABC_create"],
     "KVSet": ["Key": "ABC", "Value": "123"],
@@ -88,7 +95,7 @@ resp 200:
 
 Try duplicate request
 ```
-POST /db/dev
+POST /db/my_env
 {
     "IdempotencyIDs": ["ABC_create"],
     "KVSet": ["Key": "ABC", "Value": "123"],
@@ -99,6 +106,66 @@ resp 409:
     "Code": "duplicate_request"
 }
 ```
+
+
+Watch for key change
+```
+POST /watch/my_env
+{
+    "ID": "ABC",
+    "Version": 0, // watch for key creation
+}
+resp - ... blocking until the key is created
+```
+
+Update key from another app
+```
+POST /db/my_env
+{
+    "KVSet": ["Key": "ABC", "Value": "123"],
+}
+```
+
+Now watch request unblocks
+```
+... resp
+{
+    "Key": "ABC",
+    "Version": 54,
+    "Value": "123"
+}
+```
+
+Try to wait for key change, but key was already changed since we looked at it last time
+```
+POST /watch/my_env
+{
+    "ID": "ABC",
+    "Version": 32, // last version we had was 32
+}
+resp - unblocked immediately - current version is higher
+{
+    "Key": "ABC",
+    "Version": 54,
+    "Value": "123"
+}
+```
+
+Try to wait for key change, but for current version of the key
+```
+POST /watch/my_env
+{
+    "ID": "ABC",
+    "Version": 54, // watch for key change
+}
+resp ... - blocked until value is updated again
+{
+    "Key": "ABC",
+    "Version": 54,
+    "Value": "123"
+}
+```
+
 
 
 ## Benchmarks
@@ -130,3 +197,4 @@ GOMAXPROCS=4 (2 cores) on AMD Ryzen 5 6600H.  (The rest of the cores is used for
 2024/06/15 17:08:06 atomic for 1000 accounts and 1000 keys: 36.2k req/sec
 
 ```
+
