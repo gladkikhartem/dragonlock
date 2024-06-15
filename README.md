@@ -6,15 +6,21 @@ A swiss-knife synchronisation server that will make your life easier. Featuring:
     * Long-Polling - Lock for one client returns right after unlock made by another
     * Persistent - Locks continue to block upon reboot and can be unlocked
     * Minimal latency & performance overhead  (~1-5ms)
-    * Up to 1000 lock/unlock operations per second for a single lock
-    * Up to 10k clients performing lock on the same key
-* **Key-Value storage**
-    * Strong consistency guarantees and versioning
+    * Up to 100 sequential lock/unlock operations per second for a single key
+    * Up to 10k clients waiting on a lock for a single key
+* **Key-Value operations**
+    * Strong consistency guarantees - all operations either succeed or fail.
     * Long-Polling notifications - http watch request unblocks after kv value was changed
     * Up to 100k req/sec on an average server
+    * Up to 10k watchers for a single key
 * **Atomic operations**
-    * Persistent - all changes are flushed to disk
-    * Up to 100k req/sec for a single counter on an average server
+    * Counters
+    * Sequences
+    * CompareAndSwap
+    * Up to 50k updates/sec for a single counter
+* **Backups**
+    * Automatic backups to S3
+    * Import / Export of data.
 
 Spend $5 on single server and save months of your time on not worrying about:
 - database transactions & conflicts
