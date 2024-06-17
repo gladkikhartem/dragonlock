@@ -25,6 +25,13 @@ Spend $5 on single server and save months of your time on not worrying about:
 - on-the-fly config updates
 - redis setup & maintenance just to share a few values between apps
 
+## Why not use Consul / etcd / Postres / DynamoDB?
+This API solves a problem of Lock Contention and latency overhead of typical Distributed Lock solutions by sacrificing High-Availability.
+
+By having only 1 server - it's possible to leverage in-memory mutexes to orchestrate the locking process and make overall design much much simpler, resulting in incredible performance and minimal latency.
+
+The main point is not to increase performance, but to reduce latency and make your architecture simpler. If you know that lock overhead is just 0.5ms + round-trip latency - many architecture options become available.
+
 ## Current status
 This is Work In Progress right now.
 Stability testing, docs, admin endpoints & UI are required.
