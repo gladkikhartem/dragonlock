@@ -4,11 +4,21 @@ import (
 	"fmt"
 	"log"
 	"math/rand"
+	"os"
 	"sync"
 	"time"
 
 	"github.com/valyala/fasthttp"
 )
+
+var RoundTripLatency time.Duration
+
+func DoWithLatency(c *fasthttp.Client, req *fasthttp.Request, resp *fasthttp.Response) error {
+	time.Sleep(RoundTripLatency / 2)
+	err := c.Do(req, resp)
+	time.Sleep(RoundTripLatency / 2)
+	return err
+}
 
 func BenchmarkAtomic(u string, accs, keys, parallel, nPerThread int) {
 	c := fasthttp.Client{
@@ -39,7 +49,7 @@ func BenchmarkAtomic(u string, accs, keys, parallel, nPerThread int) {
 				req.SetBody(b)
 				req.SetURI(uris[rnd.Intn(accs)])
 				resp := fasthttp.AcquireResponse()
-				err := c.Do(req, resp)
+				err := DoWithLatency(&c, req, resp)
 				if err != nil {
 					panic(err)
 				}
@@ -89,7 +99,7 @@ func BenchmarkKV(u string, accs, keys, parallel, nPerThread, size int) {
 				req.SetBody(b)
 				req.SetURI(uris[rnd.Intn(accs)])
 				resp := fasthttp.AcquireResponse()
-				err := c.Do(req, resp)
+				err := DoWithLatency(&c, req, resp)
 				if err != nil {
 					panic(err)
 				}
@@ -137,7 +147,7 @@ func BenchmarkLockUnlock(u string, accs, keys, parallel, nPerThread int) {
 				req.SetBody(b)
 				req.SetURI(ur)
 				resp := fasthttp.AcquireResponse()
-				err := c.Do(req, resp)
+				err := DoWithLatency(&c, req, resp)
 				if err != nil {
 					panic(err)
 				}
@@ -151,7 +161,7 @@ func BenchmarkLockUnlock(u string, accs, keys, parallel, nPerThread int) {
 				req.Header.SetMethod("POST")
 				req.SetBody(ub)
 				req.SetURI(ur)
-				err = c.Do(req, resp)
+				err = DoWithLatency(&c, req, resp)
 				if err != nil {
 					panic(err)
 				}
@@ -191,7 +201,7 @@ func BenchmarkWatchReaction(u string, parallel int) time.Duration {
 			req.SetBody(b)
 			req.SetURI(uri)
 			resp := fasthttp.AcquireResponse()
-			err := c.Do(req, resp)
+			err := DoWithLatency(&c, req, resp)
 			if err != nil {
 				panic(err)
 			}
@@ -215,7 +225,7 @@ func BenchmarkWatchReaction(u string, parallel int) time.Duration {
 	req.SetBody([]byte(fmt.Sprintf(`{"KVSet": [{"Key": "%v", "Value": "1"}]}`, id)))
 	req.SetURI(kvuri)
 	resp := fasthttp.AcquireResponse()
-	err = c.Do(req, resp)
+	err = DoWithLatency(&c, req, resp)
 	if err != nil {
 		panic(err)
 	}
@@ -229,32 +239,33 @@ func BenchmarkWatchReaction(u string, parallel int) time.Duration {
 }
 
 func main() {
+	RoundTripLatency = time.Millisecond * 10
+	baseURL := os.Args[1]
 	parallel := 100
 	perThread := 1
 	total := float64(parallel * perThread)
-	start := time.Now()
 
-	took := BenchmarkWatchReaction("http://localhost:8081", 1)
+	took := BenchmarkWatchReaction(baseURL, 1)
 	log.Printf("WatchReaction 1 key 1 watcher: %d ms ", took.Milliseconds())
 
-	took = BenchmarkWatchReaction("http://localhost:8081", 100)
+	took = BenchmarkWatchReaction(baseURL, 100)
 	log.Printf("WatchReaction 1 key 100 watchers: %d ms ", took.Milliseconds())
 
-	took = BenchmarkWatchReaction("http://localhost:8081", 1000)
+	took = BenchmarkWatchReaction(baseURL, 1000)
 	log.Printf("WatchReaction 1 key 1000 watchers: %d ms ", took.Milliseconds())
 
-	took = BenchmarkWatchReaction("http://localhost:8081", 1000)
+	took = BenchmarkWatchReaction(baseURL, 1000)
 	log.Printf("WatchReaction 1 key 10000 watchers: %d ms ", took.Milliseconds())
 
 	var wg sync.WaitGroup
 	var mu sync.Mutex
 	tt := []int64{}
-	start = time.Now()
+	start := time.Now()
 	for i := 0; i < 1000; i++ {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			took = BenchmarkWatchReaction("http://localhost:8081", 1)
+			took = BenchmarkWatchReaction(baseURL, 1)
 			tk := took.Milliseconds()
 			mu.Lock()
 			tt = append(tt, tk)
@@ -278,10 +289,10 @@ func main() {
 		min, float64(sum)/float64(len(tt)), max, time.Since(start).Milliseconds())
 
 	start = time.Now()
-	parallel = 100
+	parallel = 50
 	perThread = 1
-	BenchmarkLockUnlock("http://localhost:8081", 1, 1, parallel, perThread)
-	log.Printf("LockUnlock for 1 account and 1 key (sequential): %.1fk req/sec ", total/time.Since(start).Seconds()/1000)
+	BenchmarkLockUnlock(baseURL, 1, 1, parallel, perThread)
+	log.Printf("LockUnlock for 1 account and 1 key (sequential): %.1f req/sec ", total/time.Since(start).Seconds())
 
 	parallel = 1000
 	perThread = 100
@@ -289,64 +300,64 @@ func main() {
 
 	start = time.Now()
 
-	BenchmarkLockUnlock("http://localhost:8081", 1, 1000, parallel, perThread)
+	BenchmarkLockUnlock(baseURL, 1, 1000, parallel, perThread)
 	log.Printf("LockUnlock for 1 account and 1000 keys: %.1fk req/sec ", total/time.Since(start).Seconds()/1000)
 
 	start = time.Now()
-	BenchmarkLockUnlock("http://localhost:8081", 1000, 1000, parallel, perThread)
+	BenchmarkLockUnlock(baseURL, 1000, 1000, parallel, perThread)
 	log.Printf("LockUnlock for 1000 accounts and 1000 keys: %.1fk req/sec ", total/time.Since(start).Seconds()/1000)
 
 	size := 64
-	BenchmarkKV("http://localhost:8081", 1, 1, parallel, perThread, size)
+	BenchmarkKV(baseURL, 1, 1, parallel, perThread, size)
 	log.Printf("64byte write KV for 1 account and 1 key: %.1fk req/sec %.1f MB/sec", total/time.Since(start).Seconds()/1000, total*float64(size)/1000000/time.Since(start).Seconds())
 	start = time.Now()
-	BenchmarkKV("http://localhost:8081", 1, 1000, parallel, perThread, size)
+	BenchmarkKV(baseURL, 1, 1000, parallel, perThread, size)
 	log.Printf("64byte write KV for 1 account and 1000 keys: %.1fk req/sec %.1f MB/sec", total/time.Since(start).Seconds()/1000, total*float64(size)/1000000/time.Since(start).Seconds())
 	start = time.Now()
-	BenchmarkKV("http://localhost:8081", 1000, 1, parallel, perThread, size)
+	BenchmarkKV(baseURL, 1000, 1, parallel, perThread, size)
 	log.Printf("64byte write KV for 1000 accounts and 1 keys: %.1fk req/sec %.1f MB/sec", total/time.Since(start).Seconds()/1000, total*float64(size)/1000000/time.Since(start).Seconds())
 	start = time.Now()
-	BenchmarkKV("http://localhost:8081", 1000, 1000, parallel, perThread, size)
+	BenchmarkKV(baseURL, 1000, 1000, parallel, perThread, size)
 	log.Printf("64byte write KV for 1000 accounts and 1000 keys: %.1fk req/sec %.1f MB/sec", total/time.Since(start).Seconds()/1000, total*float64(size)/1000000/time.Since(start).Seconds())
 
 	size = 1024
-	BenchmarkKV("http://localhost:8081", 1, 1, parallel, perThread, size)
+	BenchmarkKV(baseURL, 1, 1, parallel, perThread, size)
 	log.Printf("1KB write KV for 1 account and 1 key: %.1fk req/sec %.1f MB/sec", total/time.Since(start).Seconds()/1000, total*float64(size)/1000000/time.Since(start).Seconds())
 	start = time.Now()
-	BenchmarkKV("http://localhost:8081", 1, 1000, parallel, perThread, size)
+	BenchmarkKV(baseURL, 1, 1000, parallel, perThread, size)
 	log.Printf("1KB write KV for 1 account and 1000 keys: %.1fk req/sec %.1f MB/sec", total/time.Since(start).Seconds()/1000, total*float64(size)/1000000/time.Since(start).Seconds())
 	start = time.Now()
-	BenchmarkKV("http://localhost:8081", 1000, 1, parallel, perThread, size)
+	BenchmarkKV(baseURL, 1000, 1, parallel, perThread, size)
 	log.Printf("1KB write KV for 1000 accounts and 1 keys: %.1fk req/sec %.1f MB/sec", total/time.Since(start).Seconds()/1000, total*float64(size)/1000000/time.Since(start).Seconds())
 	start = time.Now()
-	BenchmarkKV("http://localhost:8081", 1000, 1000, parallel, perThread, size)
+	BenchmarkKV(baseURL, 1000, 1000, parallel, perThread, size)
 	log.Printf("1KB write KV for 1000 accounts and 1000 keys: %.1fk req/sec %.1f MB/sec", total/time.Since(start).Seconds()/1000, total*float64(size)/1000000/time.Since(start).Seconds())
 
 	perThread = 10
 	total = float64(parallel * perThread)
 	size = 10240
-	BenchmarkKV("http://localhost:8081", 1, 1, parallel, perThread, size)
+	BenchmarkKV(baseURL, 1, 1, parallel, perThread, size)
 	log.Printf("10 KB write KV for 1 account and 1 key: %.1fk req/sec %.1f MB/sec", total/time.Since(start).Seconds()/1000, total*float64(size)/1000000/time.Since(start).Seconds())
 	start = time.Now()
-	BenchmarkKV("http://localhost:8081", 1, 1000, parallel, perThread, size)
+	BenchmarkKV(baseURL, 1, 1000, parallel, perThread, size)
 	log.Printf("10 KB write KV for 1 account and 1000 keys: %.1fk req/sec %.1f MB/sec", total/time.Since(start).Seconds()/1000, total*float64(size)/1000000/time.Since(start).Seconds())
 	start = time.Now()
-	BenchmarkKV("http://localhost:8081", 1000, 1, parallel, perThread, size)
+	BenchmarkKV(baseURL, 1000, 1, parallel, perThread, size)
 	log.Printf("10 KB write KV for 1000 accounts and 1 keys: %.1fk req/sec %.1f MB/sec", total/time.Since(start).Seconds()/1000, total*float64(size)/1000000/time.Since(start).Seconds())
 	start = time.Now()
-	BenchmarkKV("http://localhost:8081", 1000, 1000, parallel, perThread, size)
+	BenchmarkKV(baseURL, 1000, 1000, parallel, perThread, size)
 	log.Printf("10 KB write KV for 1000 accounts and 1000 keys: %.1fk req/sec %.1f MB/sec", total/time.Since(start).Seconds()/1000, total*float64(size)/1000000/time.Since(start).Seconds())
 
 	start = time.Now()
-	BenchmarkAtomic("http://localhost:8081", 1, 1, parallel, perThread)
+	BenchmarkAtomic(baseURL, 1, 1, parallel, perThread)
 	log.Printf("atomic for 1 account and 1 key: %.1fk req/sec", total/time.Since(start).Seconds()/1000)
 	start = time.Now()
-	BenchmarkAtomic("http://localhost:8081", 1, 1000, parallel, perThread)
+	BenchmarkAtomic(baseURL, 1, 1000, parallel, perThread)
 	log.Printf("atomic for 1 account and 1000 keys: %.1fk req/sec", total/time.Since(start).Seconds()/1000)
 	start = time.Now()
-	BenchmarkAtomic("http://localhost:8081", 1000, 1, parallel, perThread)
+	BenchmarkAtomic(baseURL, 1000, 1, parallel, perThread)
 	log.Printf("atomic for 1000 accounts and 1 keys: %.1fk req/sec", total/time.Since(start).Seconds()/1000)
 	start = time.Now()
-	BenchmarkAtomic("http://localhost:8081", 1000, 1000, parallel, perThread)
+	BenchmarkAtomic(baseURL, 1000, 1000, parallel, perThread)
 	log.Printf("atomic for 1000 accounts and 1000 keys: %.1fk req/sec", total/time.Since(start).Seconds()/1000)
 }

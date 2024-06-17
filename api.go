@@ -158,6 +158,11 @@ func handleKVGet(acc string, b *pebble.Batch, key string, res *Response) error {
 
 func handle(acc string, req Request) (Response, error) {
 	var res Response
+	lockOnly := len(req.IdempotencyIDs) == 0 &&
+		len(req.Atomic) == 00 &&
+		len(req.KVGet) == 0 &&
+		len(req.KVSet) == 0
+
 	b := store.db.NewIndexedBatch() // TODO: maybe normal batch will work too
 	if req.UnlockID != "" || req.LockID != "" {
 		if req.UnlockID == req.LockID { // extend lock
@@ -166,7 +171,7 @@ func handle(acc string, req Request) (Response, error) {
 				return res, err
 			}
 		} else {
-			if req.UnlockID != "" { // unlock, but we should unlock only after successful write, so extend for now
+			if !lockOnly && req.UnlockID != "" { // unlock, but we should unlock only after successful write, so extend for now
 				err := memExtendLock(acc, req.UnlockID, req.Unlock, 30)
 				if err != nil {
 					return res, err
@@ -190,7 +195,11 @@ func handle(acc string, req Request) (Response, error) {
 				if err != nil {
 					return res, fmt.Errorf(err.Error())
 				}
-				err = b.Set(compID(cd.LocksPrefix, acc, req.LockID), d, pebble.NoSync)
+				opt := pebble.NoSync
+				if lockOnly {
+					opt = pebble.Sync
+				}
+				err = b.Set(compID(cd.LocksPrefix, acc, req.LockID), d, opt)
 				if err != nil {
 					return res, fmt.Errorf(err.Error())
 				}
@@ -198,65 +207,74 @@ func handle(acc string, req Request) (Response, error) {
 		}
 	}
 	ukey := []byte(acc)
-	// all updates for single key are performed sequentially, but flushed to
-	// disk together. See store.Update for more info
-	err := store.Singleton(ukey, func() error {
-		for _, v := range req.IdempotencyIDs {
-			err := handleIdempotency(acc, b, v)
-			if err != nil {
-				return err
-			}
-		}
-		for _, v := range req.Atomic {
-			err := handleAtomic(acc, b, v, &res)
-			if err != nil {
-				return err
-			}
-		}
-		for _, v := range req.KVGet {
-			err := handleKVGet(acc, b, v, &res)
-			if err != nil {
-				return err
-			}
-		}
-		if len(req.KVSet) > 0 {
-			seqID := compID1(cd.VerSequencePrefix, acc)
-			ver, err := GetInt64(seqID, b)
-			if err != nil {
-				return err
-			}
-			v := int64(1)
-			if ver != nil {
-				v = *ver
-			}
-			for _, val := range req.KVSet {
-				val.Version = v
-				v++
-				err = handleKVSet(acc, b, val)
+
+	if !lockOnly {
+		// all updates for single key are performed sequentially, but flushed to
+		// disk together. See store.Update for more info
+		err := store.Singleton(ukey, func() error {
+			for _, v := range req.IdempotencyIDs {
+				err := handleIdempotency(acc, b, v)
 				if err != nil {
 					return err
 				}
 			}
-			err = SetInt64(seqID, v, b)
-			if err != nil {
-				panic(err)
+			for _, v := range req.Atomic {
+				err := handleAtomic(acc, b, v, &res)
+				if err != nil {
+					return err
+				}
 			}
-		}
-		return b.Commit(pebble.NoSync)
-	})
-	if err != nil {
-		if req.LockID != req.UnlockID && req.LockID != "" { // locked, but request failed - unlock
-			err := memUnlock(acc, req.LockID, res.Lock)
-			if err != nil {
-				log.Print("failed to unlock after lock + failed write")
+			for _, v := range req.KVGet {
+				err := handleKVGet(acc, b, v, &res)
+				if err != nil {
+					return err
+				}
 			}
+			if len(req.KVSet) > 0 {
+				seqID := compID1(cd.VerSequencePrefix, acc)
+				ver, err := GetInt64(seqID, b)
+				if err != nil {
+					return err
+				}
+				v := int64(1)
+				if ver != nil {
+					v = *ver
+				}
+				for _, val := range req.KVSet {
+					val.Version = v
+					v++
+					err = handleKVSet(acc, b, val)
+					if err != nil {
+						return err
+					}
+				}
+				err = SetInt64(seqID, v, b)
+				if err != nil {
+					panic(err)
+				}
+			}
+			return b.Commit(pebble.NoSync)
+		})
+		if err != nil {
+			if req.LockID != req.UnlockID && req.LockID != "" { // locked, but request failed - unlock
+				err := memUnlock(acc, req.LockID, res.Lock)
+				if err != nil {
+					log.Print("failed to unlock after lock + failed write")
+				}
+			}
+			return res, fmt.Errorf("err updating: " + err.Error())
 		}
-		return res, fmt.Errorf("err updating: " + err.Error())
 	}
 	if req.LockID != req.UnlockID && req.UnlockID != "" { // unlock
-		err = memUnlock(acc, req.UnlockID, res.Lock)
+		err := memUnlock(acc, req.UnlockID, res.Lock)
 		if err != nil {
 			log.Print("failed to unlock after successful write")
+		}
+		if lockOnly {
+			err = b.Delete(compID(cd.LocksPrefix, acc, req.UnlockID), pebble.Sync)
+			if err != nil {
+				return res, fmt.Errorf(err.Error())
+			}
 		}
 	}
 	for _, val := range req.KVSet {
