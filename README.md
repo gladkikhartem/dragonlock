@@ -8,7 +8,7 @@ A swiss-knife synchronisation server that will make your life easier. Featuring:
     * Minimal latency & performance overhead  (~1-5ms)
     * Up to 1k sequential lock/unlock operations per second for a single key
     * Up to 10k clients waiting on a lock for a single key
-* **Key-Value operations**
+* **Storing shared data**
     * Strong consistency guarantees - all operations either succeed or fail.
     * Long-Polling notifications - http watch request unblocks after kv value was changed
     * Up to 100k req/sec on an average server
@@ -18,31 +18,21 @@ A swiss-knife synchronisation server that will make your life easier. Featuring:
     * Idempotency checks included
     * All updates persisted to disk
     * Up to 50k updates/sec for a single counter
-* **Backups**
-    * Automatic backups to S3
-    * Import / Export of data.
 
 Spend $5 on single server and save months of your time on not worrying about:
 - database transactions & conflicts
 - concurrent background actions executed at the same time
 - on-the-fly config updates
-- redis setup & maintenance just to cache a few values
-
-## Use-cases
-* Ensure exclusive code execution across multiple machines with minimal latency overhead.
-* Generate globaly unique sequential IDs.
-* Share state among 100s of servers that is updated in milliseconds.
+- redis setup & maintenance just to share a few values between apps
 
 ## Current status
 This is Work In Progress right now.
 Stability testing, docs, admin endpoints & UI are required.
 
-## API Design:
-API is divided into "accounts" (aka partitions), where 1 account can't share any data with another account. 
+## API Guarantees:
+Whole request is executed atomically - either all changes applied or none.
 
-If you never expect to have more than 50k/req second for this API - you can have only 1 account. If you may need more performance in future - you can create multiple accounts (aka tenants). Load Balancer in front of this API can distribute the load across multiple machines based on accountid in http url path.
-
-All actions are executed atomically. If you issue a Lock, update 100 keys & increment 50 counters in a single request - all those actions will either succeed or fail together.
+All changes are persisted to disk before success response is returned.
 
 ## Usage Examples:
 Lock key "ABC" for 30 seconds. Wait for 30 seconds to acquire the lock
