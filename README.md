@@ -6,7 +6,7 @@ A swiss-knife synchronisation server that will make your life easier. Featuring:
     * Long-Polling - Lock for one client returns right after unlock made by another
     * Persistent - Locks continue to block upon reboot and can be unlocked
     * Minimal latency & performance overhead  (~1-5ms)
-    * Up to 100 sequential lock/unlock operations per second for a single key
+    * Up to 1k sequential lock/unlock operations per second for a single key
     * Up to 10k clients waiting on a lock for a single key
 * **Key-Value operations**
     * Strong consistency guarantees - all operations either succeed or fail.

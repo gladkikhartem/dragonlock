@@ -158,6 +158,7 @@ func handleKVGet(acc string, b *pebble.Batch, key string, res *Response) error {
 
 func handle(acc string, req Request) (Response, error) {
 	var res Response
+
 	lockOnly := len(req.IdempotencyIDs) == 0 &&
 		len(req.Atomic) == 00 &&
 		len(req.KVGet) == 0 &&
@@ -195,13 +196,16 @@ func handle(acc string, req Request) (Response, error) {
 				if err != nil {
 					return res, fmt.Errorf(err.Error())
 				}
-				opt := pebble.NoSync
 				if lockOnly {
-					opt = pebble.Sync
-				}
-				err = b.Set(compID(cd.LocksPrefix, acc, req.LockID), d, opt)
-				if err != nil {
-					return res, fmt.Errorf(err.Error())
+					err = store.db.Set(compID(cd.LocksPrefix, acc, req.LockID), d, pebble.Sync)
+					if err != nil {
+						return res, fmt.Errorf(err.Error())
+					}
+				} else {
+					err = b.Set(compID(cd.LocksPrefix, acc, req.LockID), d, pebble.NoSync)
+					if err != nil {
+						return res, fmt.Errorf(err.Error())
+					}
 				}
 			}
 		}
@@ -271,7 +275,7 @@ func handle(acc string, req Request) (Response, error) {
 			log.Print("failed to unlock after successful write")
 		}
 		if lockOnly {
-			err = b.Delete(compID(cd.LocksPrefix, acc, req.UnlockID), pebble.Sync)
+			err = store.db.Delete(compID(cd.LocksPrefix, acc, req.UnlockID), pebble.Sync)
 			if err != nil {
 				return res, fmt.Errorf(err.Error())
 			}
@@ -280,8 +284,11 @@ func handle(acc string, req Request) (Response, error) {
 	for _, val := range req.KVSet {
 		store.notifier(acc).NotifyVersion(val.Key, val.Version)
 	}
+
 	return res, nil
 }
+
+var ccc int64
 
 func RequestHandler(ctx *fasthttp.RequestCtx) {
 	acc, err := getAcc(ctx)

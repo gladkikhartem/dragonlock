@@ -47,33 +47,6 @@ func compID(prefix int, acc, id string) []byte {
 	return b
 }
 
-// TableID|Account|0|QID|id|seq
-// 0 byte delimited is used to construct composite key from Acc and ID
-func compIDQueue(prefix int, acc, qid string, seq int64) []byte {
-	b := make([]byte, 0, len(qid)+len(acc)+2)
-	b = append(b, byte(prefix))
-	b = append(b, acc...)
-	b = append(b, 0)
-	b = append(b, qid...)
-	b = append(b, 0)
-	b = append(b, []byte(fmt.Sprint(seq))...)
-	return b
-}
-
-// TableID|Account|0|QID|id|seq
-// 0 byte delimited is used to construct composite key from Acc and ID
-func compIDPrefix(prefix int, acc, qid, id string) []byte {
-	b := make([]byte, 0, len(id)+len(acc)+2)
-	b = append(b, byte(prefix))
-	b = append(b, acc...)
-	b = append(b, 0)
-	b = append(b, qid...)
-	b = append(b, 0)
-	b = append(b, id...)
-	b = append(b, 0)
-	return b
-}
-
 // TableID|ID
 // 0 byte delimited is used to construct composite key from Acc and ID
 func compID1(prefix int, id string) []byte {

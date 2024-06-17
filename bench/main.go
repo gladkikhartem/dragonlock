@@ -239,11 +239,12 @@ func BenchmarkWatchReaction(u string, parallel int) time.Duration {
 }
 
 func main() {
-	RoundTripLatency = time.Millisecond * 10
+	RoundTripLatency = time.Millisecond * 0
 	baseURL := os.Args[1]
 	parallel := 100
 	perThread := 1
 	total := float64(parallel * perThread)
+	start := time.Now()
 
 	took := BenchmarkWatchReaction(baseURL, 1)
 	log.Printf("WatchReaction 1 key 1 watcher: %d ms ", took.Milliseconds())
@@ -260,7 +261,7 @@ func main() {
 	var wg sync.WaitGroup
 	var mu sync.Mutex
 	tt := []int64{}
-	start := time.Now()
+	start = time.Now()
 	for i := 0; i < 1000; i++ {
 		wg.Add(1)
 		go func() {
@@ -294,14 +295,14 @@ func main() {
 	BenchmarkLockUnlock(baseURL, 1, 1, parallel, perThread)
 	log.Printf("LockUnlock for 1 account and 1 key (sequential): %.1f req/sec ", total/time.Since(start).Seconds())
 
-	parallel = 1000
+	parallel = 400
 	perThread = 100
 	total = float64(parallel * perThread)
 
 	start = time.Now()
 
-	BenchmarkLockUnlock(baseURL, 1, 1000, parallel, perThread)
-	log.Printf("LockUnlock for 1 account and 1000 keys: %.1fk req/sec ", total/time.Since(start).Seconds()/1000)
+	BenchmarkLockUnlock(baseURL, 1, 100000, parallel, perThread)
+	log.Printf("LockUnlock for 1 account and 100000 keys: %.1fk req/sec ", total/time.Since(start).Seconds()/1000)
 
 	start = time.Now()
 	BenchmarkLockUnlock(baseURL, 1000, 1000, parallel, perThread)
