@@ -1,5 +1,5 @@
 ![cd](cdtools.png) 
-# Cloud Dragon  (WIP)
+# Dragon Lock  (WIP)
 A swiss-knife synchronisation server that will make your life easier. Featuring:
 
 * **Distributed Locks**
