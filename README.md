@@ -30,7 +30,12 @@ This API solves a problem of Lock Contention and latency overhead of typical Dis
 
 By having only 1 server - it's possible to leverage in-memory mutexes to orchestrate the locking process and make overall design much much simpler, resulting in incredible performance and minimal latency.
 
-The main point is not to increase performance, but to reduce latency and make your architecture simpler. If you know that lock overhead is just 0.5ms + round-trip latency - many architecture options become available.
+If you know that lock overhead is just 0.5ms + round-trip latency and you can have 100k req/second for your whole solution - many simpler architecture options become available. Such as:
+- Guarantee that consistent hashing will route all requests for 1 key to go exclusively to 1 server, even during cluster changes.
+    - Read directly from local in-memory cache
+    - Batch multiple updates together & update DB once
+- Share state between 100s of servers where every server can update the state every second.
+
 
 ## Current status
 This is Work In Progress right now.
