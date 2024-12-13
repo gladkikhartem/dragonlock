@@ -3,21 +3,19 @@
 A swiss-knife synchronisation server that will make your life easier. Featuring:
 
 * **Distributed Locks**
-    * Long-Polling - Lock for one client returns right after unlock made by another
-    * Persistent - Locks continue to block upon reboot and can be unlocked
-    * Minimal latency & performance overhead  (~1-5ms)
-    * Up to 1k sequential lock/unlock operations per second for a single key
-    * Up to 10k clients waiting on a lock for a single key
-* **Storing shared data**
-    * Strong consistency guarantees - all operations either succeed or fail.
-    * Long-Polling notifications - http watch request unblocks after kv value was changed
+    * Long-Polling - lock for one client returns right after unlock made by another client
+    * Persistent - locks are persisted to disk and continue to block upon reboot for specified time
+    * > 1k sequential lock/unlock operations per second for a single key
+    * > 10k clients waiting on a lock for a single key
+* **KV store with change notifications**
+    * Strong Consistency - all operations either succeed or fail and written to disk before returning
+    * Long Polling for Change Notifications - get notified about value change in milliseconds.
     * Up to 100k req/sec on an average server
     * Up to 10k watchers for a single key
-* **Atomic operations**
-    * Counters, Sequences, CompareAndSwap
-    * Idempotency checks included
-    * All updates persisted to disk
-    * Up to 50k updates/sec for a single counter
+* **Concurrency helpers**
+    * Counters
+    * Sequences
+    * IdempotencyKey support for all operations
 
 Spend $5 on single server and save months of your time on not worrying about:
 - database transactions & conflicts
@@ -31,10 +29,12 @@ This API solves a problem of Lock Contention and latency overhead of typical Dis
 By having only 1 server - it's possible to leverage in-memory mutexes to orchestrate the locking process and make overall design much much simpler, resulting in incredible performance and minimal latency.
 
 If you know that lock overhead is just 0.5ms + round-trip latency and you can have 100k req/second for your whole solution - many simpler architecture options become available. Such as:
-- Guarantee that consistent hashing will route all requests for 1 key to go exclusively to 1 server, even during cluster changes.
-    - Read directly from local in-memory cache
-    - Batch multiple updates together & update DB once
+- Perform all operations sequentially for given key
+- Read directly from local in-memory cache if request came to same server
+- Batch multiple updates together & update DB once
 - Share state between 100s of servers where every server can update the state every second.
+
+[![Link](https://clouddragon.net/app/wG2HfbLhgechAu6Yv1FoRd.svg 'Link')](https://clouddragon.net/app/wG2HfbLhgechAu6Yv1FoRd.svg)
 
 
 ## Current status
@@ -237,4 +237,5 @@ resp ... - blocked until value is updated again
 2024/06/17 11:52:39 atomic for 1000 accounts and 1 keys: 52.0k req/sec
 2024/06/17 11:52:40 atomic for 1000 accounts and 1000 keys: 31.6k req/sec
 ```
+
 
