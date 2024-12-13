@@ -34,9 +34,6 @@ If you know that lock overhead is just 0.5ms + round-trip latency and you can ha
 - Batch multiple updates together & update DB once
 - Share state between 100s of servers where every server can update the state every second.
 
-[![Link](https://clouddragon.net/app/wG2HfbLhgechAu6Yv1FoRd.svg 'Link')](https://clouddragon.net/app/wG2HfbLhgechAu6Yv1FoRd.svg)
-
-
 ## Current status
 This is Work In Progress right now.
 Stability testing, docs, admin endpoints & UI are required.
